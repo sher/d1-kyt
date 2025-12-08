@@ -108,13 +108,12 @@ export const migration = () => [
 
 ### Later Migrations
 
-Use `createUseTable` for type-safe references to existing tables:
+Import `useTable` from the generated `db/index.ts`:
 
 ```typescript
-import type { DB } from '../../db/generated';
-import { createUseTable, addColumn, createIndex } from 'd1-kyt/migrate';
+import { useTable } from '../../db';
+import { addColumn, createIndex } from 'd1-kyt/migrate';
 
-const useTable = createUseTable<DB>();
 const User = useTable('User');
 
 export const migration = () => [
