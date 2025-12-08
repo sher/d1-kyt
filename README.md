@@ -1,5 +1,9 @@
 # d1-kyt
 
+[![Cloudflare D1](https://img.shields.io/badge/Cloudflare-D1-F38020?logo=cloudflare)](https://developers.cloudflare.com/d1/)
+[![Kysely](https://img.shields.io/badge/Kysely-Query_Builder-blue)](https://kysely.dev/)
+[![npm](https://img.shields.io/npm/v/d1-kyt)](https://www.npmjs.com/package/d1-kyt)
+
 Opinionated [Cloudflare D1](https://developers.cloudflare.com/d1/) + [Kysely](https://kysely.dev/) toolkit.
 
 **ky**(sely) + **t**(oolkit) = **kyt**
