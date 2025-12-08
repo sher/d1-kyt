@@ -4,7 +4,7 @@
 [![Kysely](https://img.shields.io/badge/Kysely-Query_Builder-blue)](https://kysely.dev/)
 [![npm](https://img.shields.io/npm/v/d1-kyt)](https://www.npmjs.com/package/d1-kyt)
 
-Opinionated [Cloudflare D1](https://developers.cloudflare.com/d1/) + [Kysely](https://kysely.dev/) toolkit.
+Highly opinionated [Cloudflare D1](https://developers.cloudflare.com/d1/) + [Kysely](https://kysely.dev/) toolkit.
 
 Not an ORM, no magic, no runtime overhead. Just a wrapper with helpers that relies on Kysely's type inference.
 
@@ -165,6 +165,8 @@ export const migration = () => [
 
 ## Conventions
 
+- Singular `PascalCase` table names
+- `camelCase` column names
 - Auto `id`, `createdAt`, `updatedAt` on every table
 - Auto trigger for `updatedAt`
 
