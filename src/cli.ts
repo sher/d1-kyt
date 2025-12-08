@@ -164,6 +164,27 @@ export default defineConfig({
     console.log(`Skipped: ${D1_KYT_DIR}/${KYSELY_CONFIG_FILE} (already exists)`);
   }
 
+  // Create db directory
+  const absoluteDbDir = resolve(process.cwd(), dbDir);
+  if (!existsSync(absoluteDbDir)) {
+    mkdirSync(absoluteDbDir, { recursive: true });
+    console.log(`Created: ${dbDir}/`);
+  }
+
+  // Create db/index.ts with useTable helper
+  const indexPath = join(absoluteDbDir, 'index.ts');
+  if (!existsSync(indexPath)) {
+    const template = `import type { DB } from './generated';
+import { createUseTable } from 'd1-kyt/migrate';
+
+export const useTable = createUseTable<DB>();
+`;
+    writeFileSync(indexPath, template);
+    console.log(`Created: ${dbDir}/index.ts`);
+  } else {
+    console.log(`Skipped: ${dbDir}/index.ts (already exists)`);
+  }
+
   console.log(`\nNext steps:`);
   console.log(`  1. Create migration: d1-kyt migrate:create <name>`);
   console.log(`  2. Build migrations: d1-kyt migrate:build`);

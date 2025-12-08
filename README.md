@@ -15,7 +15,7 @@ npm install d1-kyt kysely kysely-codegen
 ## CLI
 
 ```bash
-d1-kyt init                      # creates d1-kyt/ folder with config
+d1-kyt init                      # creates d1-kyt/ and db/index.ts
 d1-kyt migrate:create <name>     # creates d1-kyt/migrations/0001_<name>.ts
 d1-kyt migrate:build             # compiles *.ts → db/migrations/*.sql
 d1-kyt typegen                   # runs kysely-codegen
