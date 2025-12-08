@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.3';
 
 const HELP = `
 d1-kyt v${VERSION} - Opinionated Cloudflare D1 + Kysely toolkit

@@ -129,6 +129,40 @@ export const migration = () => [
 ];
 ```
 
+### Triggers
+
+```typescript
+import { useTable } from '../../db';
+import { createTrigger, dropTrigger } from 'd1-kyt/migrate';
+
+const Merchant = useTable('Merchant');
+
+export const migration = () => [
+  createTrigger('merchant_fts_insert', 'AFTER INSERT', Merchant, `
+    INSERT INTO "MerchantFts"(rowid, name) VALUES (NEW.id, NEW.name);
+  `),
+];
+
+// To drop a trigger:
+// dropTrigger('merchant_fts_insert')
+```
+
+### Seed Data
+
+```typescript
+import { useTable } from '../../db';
+import { insert } from 'd1-kyt/migrate';
+
+const AdType = useTable('AdType');
+
+export const migration = () => [
+  insert(AdType, [
+    { name: 'banner', active: true },
+    { name: 'popup', active: false },
+  ]),
+];
+```
+
 ## Conventions
 
 - Auto `id`, `createdAt`, `updatedAt` on every table
@@ -149,6 +183,9 @@ export const migration = () => [
 | `addColumn(table, col, fn)`       | Add column                        |
 | `dropTable(table)`                | Drop table + trigger              |
 | `dropIndex(name)`                 | Drop index                        |
+| `createTrigger(name, timing, table, body)` | Create trigger           |
+| `dropTrigger(name)`               | Drop trigger                      |
+| `insert(table, rows)`             | Insert seed data                  |
 
 ## License
 

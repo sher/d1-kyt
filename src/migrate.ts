@@ -251,3 +251,91 @@ export function dropTable<T>(table: Table<T>): string[] {
     `DROP TRIGGER IF EXISTS "${name}_updatedAt";`,
   ];
 }
+
+// ----------------------------------------------------------------------------
+// Trigger Operations
+// ----------------------------------------------------------------------------
+
+type TriggerTiming =
+  | 'BEFORE INSERT'
+  | 'AFTER INSERT'
+  | 'BEFORE UPDATE'
+  | 'AFTER UPDATE'
+  | 'BEFORE DELETE'
+  | 'AFTER DELETE';
+
+/**
+ * Create a trigger on a table.
+ * Body should contain the SQL statements without BEGIN/END.
+ *
+ * @example
+ * ```typescript
+ * createTrigger('merchant_fts_insert', 'AFTER INSERT', Merchant, `
+ *   INSERT INTO "MerchantFts"(rowid, name) VALUES (NEW.id, NEW.name);
+ * `)
+ * ```
+ */
+export function createTrigger<T>(
+  name: string,
+  timing: TriggerTiming,
+  table: Table<T>,
+  body: string
+): string {
+  const trimmedBody = body.trim();
+  return `CREATE TRIGGER "${name}"
+${timing} ON "${table._name}"
+FOR EACH ROW
+BEGIN
+  ${trimmedBody}
+END;`;
+}
+
+/**
+ * Drop a trigger by name.
+ */
+export function dropTrigger(name: string): string {
+  return `DROP TRIGGER IF EXISTS "${name}";`;
+}
+
+// ----------------------------------------------------------------------------
+// Data Operations
+// ----------------------------------------------------------------------------
+
+type InsertValue = string | number | boolean | null;
+
+/**
+ * Insert rows into a table.
+ * Values are automatically quoted based on type.
+ *
+ * @example
+ * ```typescript
+ * insert(AdImageType, [
+ *   { name: 'merchant' },
+ *   { name: 'blogDesktop' },
+ * ])
+ * ```
+ */
+export function insert<T>(
+  table: Table<T>,
+  rows: Record<string, InsertValue>[]
+): string {
+  if (rows.length === 0) return '';
+
+  const columns = Object.keys(rows[0]);
+  const columnList = columns.map((c) => `"${c}"`).join(', ');
+
+  const valuesList = rows
+    .map((row) => {
+      const values = columns.map((col) => {
+        const val = row[col];
+        if (val === null) return 'NULL';
+        if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
+        if (typeof val === 'boolean') return val ? '1' : '0';
+        return String(val);
+      });
+      return `(${values.join(', ')})`;
+    })
+    .join(',\n  ');
+
+  return `INSERT INTO "${table._name}" (${columnList}) VALUES\n  ${valuesList};`;
+}
