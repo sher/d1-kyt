@@ -1,7 +1,11 @@
 {
   "name": "d1-kyt",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Opinionated Cloudflare D1 + Kysely toolkit",
+  "repository": {
+    "url": "https://github.com/sher/d1-kyt"
+  },
+  "homepage": "https://github.com/sher/d1-kyt",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
