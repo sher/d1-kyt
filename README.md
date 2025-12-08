@@ -116,6 +116,8 @@ export const migration = () => [
 Import `useTable` from the generated `db/index.ts`:
 
 ```typescript
+// d1-kyt/migrations/0042_add_age_to_user_table.ts
+
 import { useTable } from '../../db';
 import { addColumn, createIndex } from 'd1-kyt/migrate';
 
