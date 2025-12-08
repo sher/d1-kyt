@@ -1,0 +1,54 @@
+{
+  "name": "d1-kyt",
+  "version": "0.1.0",
+  "description": "Opinionated Cloudflare D1 + Kysely toolkit",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "d1-kyt": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./migrate": {
+      "types": "./dist/migrate.d.ts",
+      "import": "./dist/migrate.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "lint": "echo noop",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "cloudflare",
+    "d1",
+    "kysely",
+    "sqlite",
+    "workers"
+  ],
+  "author": "sher",
+  "license": "MIT",
+  "peerDependencies": {
+    "kysely": ">=0.27.0",
+    "kysely-codegen": ">=0.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.29",
+    "kysely": "0.28.8",
+    "vitest": "4.0.15"
+  }
+}
