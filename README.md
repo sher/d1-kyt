@@ -6,7 +6,7 @@
 
 Opinionated [Cloudflare D1](https://developers.cloudflare.com/d1/) + [Kysely](https://kysely.dev/) toolkit.
 
-Not an ORM, just a wrapper with helpers that relies on Kysely's type inference. No magic, no runtime overhead.
+Not an ORM, no magic, no runtime overhead. Just a wrapper with helpers that relies on Kysely's type inference.
 
 **ky**(sely) + **t**(oolkit) = **kyt**
 
