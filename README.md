@@ -6,9 +6,10 @@
 
 Opinionated [Cloudflare D1](https://developers.cloudflare.com/d1/) + [Kysely](https://kysely.dev/) toolkit.
 
+Not an ORM, just a wrapper with helpers that relies on Kysely's type inference. No magic, no runtime overhead.
+
 **ky**(sely) + **t**(oolkit) = **kyt**
 
-> **Not an ORM.** Thin wrapper with helpers that relies on Kysely's type inference. No magic, no runtime overhead.
 
 ## Install
 
@@ -21,7 +22,7 @@ npm install d1-kyt kysely kysely-codegen
 ```bash
 d1-kyt init                      # creates d1-kyt/ and db/index.ts
 d1-kyt migrate:create <name>     # creates d1-kyt/migrations/0001_<name>.ts
-d1-kyt migrate:build             # compiles *.ts → db/migrations/*.sql
+d1-kyt migrate:build             # compiles d1-kyt/migrations/*.ts → db/migrations/*.sql
 d1-kyt typegen                   # runs kysely-codegen
 ```
 
