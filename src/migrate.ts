@@ -76,14 +76,14 @@ const columnBuilder: ColumnBuilder = {
  * All options default to true for backwards compatibility.
  */
 export interface TableOptions {
-  /** Add "id" INTEGER PRIMARY KEY AUTOINCREMENT column. Default: true */
-  id?: boolean;
+  /** Add primary key column. Default: true */
+  primaryKey?: boolean;
   /** Add "createdAt" TEXT column with default datetime('now'). Default: true */
   createdAt?: boolean;
   /** Add "updatedAt" TEXT column with trigger. Default: true */
   updatedAt?: boolean;
-  /** Custom name for id column. Default: "id" */
-  idColumn?: string;
+  /** Custom name for primary key column. Default: "id" */
+  primaryKeyColumn?: string;
   /** Custom name for createdAt column. Default: "createdAt" */
   createdAtColumn?: string;
   /** Custom name for updatedAt column. Default: "updatedAt" */
@@ -99,10 +99,10 @@ export interface TableOptions {
  */
 type AutoColumns<
   O extends TableOptions,
-  IdCol extends string = O['idColumn'] extends string ? O['idColumn'] : 'id',
+  PkCol extends string = O['primaryKeyColumn'] extends string ? O['primaryKeyColumn'] : 'id',
   CreatedCol extends string = O['createdAtColumn'] extends string ? O['createdAtColumn'] : 'createdAt',
   UpdatedCol extends string = O['updatedAtColumn'] extends string ? O['updatedAtColumn'] : 'updatedAt',
-> = (O['id'] extends false ? {} : { [K in IdCol]: unknown }) &
+> = (O['primaryKey'] extends false ? {} : { [K in PkCol]: unknown }) &
   (O['createdAt'] extends false ? {} : { [K in CreatedCol]: unknown }) &
   (O['updatedAt'] extends false ? {} : { [K in UpdatedCol]: unknown });
 
@@ -129,10 +129,10 @@ type TableDefFn<T extends Record<string, ColumnDef>> = (col: ColumnBuilder) => T
 
 /** Default options for defineTable */
 const defaultTableOptions: Required<TableOptions> = {
-  id: true,
+  primaryKey: true,
   createdAt: true,
   updatedAt: true,
-  idColumn: 'id',
+  primaryKeyColumn: 'id',
   createdAtColumn: 'createdAt',
   updatedAtColumn: 'updatedAt',
 };
@@ -152,9 +152,9 @@ export function defineTable<T extends Record<string, ColumnDef>, O extends Table
   const columnDefs: string[] = [];
   const sqlStatements: string[] = [];
 
-  // Auto id column
-  if (opts.id) {
-    columnDefs.push(`  "${opts.idColumn}" INTEGER PRIMARY KEY AUTOINCREMENT`);
+  // Auto primary key column
+  if (opts.primaryKey) {
+    columnDefs.push(`  "${opts.primaryKeyColumn}" INTEGER PRIMARY KEY AUTOINCREMENT`);
   }
 
   // User-defined columns
@@ -183,7 +183,7 @@ export function defineTable<T extends Record<string, ColumnDef>, O extends Table
   // Only create trigger if updatedAt is enabled
   if (opts.updatedAt) {
     // Determine primary key column for WHERE clause
-    const pkColumn = opts.id ? opts.idColumn : findPrimaryKeyColumn(columns);
+    const pkColumn = opts.primaryKey ? opts.primaryKeyColumn : findPrimaryKeyColumn(columns);
     if (pkColumn) {
       const createTriggerSql = `CREATE TRIGGER "${name}_${opts.updatedAtColumn}_trg"
 AFTER UPDATE ON "${name}"

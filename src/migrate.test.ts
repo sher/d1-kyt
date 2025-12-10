@@ -69,10 +69,10 @@ describe('defineTable', () => {
     expect(Mixed.sql[0]).toContain('"blobCol" BLOB');
   });
 
-  it('disables id column', () => {
+  it('disables primary key column', () => {
     const Place = defineTable('Place', (col) => ({
       name: col.text().notNull(),
-    }), { id: false });
+    }), { primaryKey: false });
 
     expect(Place.sql[0]).not.toContain('"id"');
     expect(Place.sql[0]).toContain('"name"');
@@ -104,7 +104,7 @@ describe('defineTable', () => {
   it('disables all auto columns', () => {
     const Place = defineTable('Place', (col) => ({
       name: col.text().notNull(),
-    }), { id: false, createdAt: false, updatedAt: false });
+    }), { primaryKey: false, createdAt: false, updatedAt: false });
 
     expect(Place.sql[0]).toBe(`CREATE TABLE "Place" (
   "name" TEXT NOT NULL
@@ -116,7 +116,7 @@ describe('defineTable', () => {
     const Place = defineTable('Place', (col) => ({
       name: col.text().notNull(),
     }), {
-      idColumn: 'place_id',
+      primaryKeyColumn: 'place_id',
       createdAtColumn: 'created_at',
       updatedAtColumn: 'updated_at',
     });
@@ -129,11 +129,11 @@ describe('defineTable', () => {
     expect(Place.sql[1]).toContain('WHERE "place_id" = NEW."place_id"');
   });
 
-  it('uses first user column as pk when id disabled with updatedAt enabled', () => {
+  it('uses first user column as pk when primaryKey disabled with updatedAt enabled', () => {
     const Place = defineTable('Place', (col) => ({
       uuid: col.text().notNull(),
       name: col.text().notNull(),
-    }), { id: false });
+    }), { primaryKey: false });
 
     expect(Place.sql[1]).toContain('WHERE "uuid" = NEW."uuid"');
   });

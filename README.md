@@ -33,13 +33,13 @@ export const migration = () => [
 const Event = defineTable('Event', (col) => ({
   uuid: col.text().notNull(),
   name: col.text().notNull(),
-}), { id: false, createdAt: false, updatedAt: false });
+}), { primaryKey: false, createdAt: false, updatedAt: false });
 
 // Custom column names (snake_case)
 const User = defineTable('user', (col) => ({
   email: col.text().notNull(),
 }), {
-  idColumn: 'user_id',
+  primaryKeyColumn: 'user_id',
   createdAtColumn: 'created_at',
   updatedAtColumn: 'updated_at',
 });
