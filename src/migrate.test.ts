@@ -40,7 +40,7 @@ describe('defineTable', () => {
       name: col.text().notNull(),
     }));
 
-    expect(Place.sql[1]).toContain('CREATE TRIGGER "Place_updatedAt"');
+    expect(Place.sql[1]).toContain('CREATE TRIGGER "Place_updatedAt_trg"');
     expect(Place.sql[1]).toContain('AFTER UPDATE ON "Place"');
   });
 
@@ -67,6 +67,75 @@ describe('defineTable', () => {
     expect(Mixed.sql[0]).toContain('"intCol" INTEGER');
     expect(Mixed.sql[0]).toContain('"realCol" REAL');
     expect(Mixed.sql[0]).toContain('"blobCol" BLOB');
+  });
+
+  it('disables id column', () => {
+    const Place = defineTable('Place', (col) => ({
+      name: col.text().notNull(),
+    }), { id: false });
+
+    expect(Place.sql[0]).not.toContain('"id"');
+    expect(Place.sql[0]).toContain('"name"');
+    expect(Place.sql[0]).toContain('"createdAt"');
+    expect(Place.sql[0]).toContain('"updatedAt"');
+  });
+
+  it('disables createdAt column', () => {
+    const Place = defineTable('Place', (col) => ({
+      name: col.text().notNull(),
+    }), { createdAt: false });
+
+    expect(Place.sql[0]).toContain('"id"');
+    expect(Place.sql[0]).not.toContain('"createdAt"');
+    expect(Place.sql[0]).toContain('"updatedAt"');
+  });
+
+  it('disables updatedAt column and trigger', () => {
+    const Place = defineTable('Place', (col) => ({
+      name: col.text().notNull(),
+    }), { updatedAt: false });
+
+    expect(Place.sql[0]).toContain('"id"');
+    expect(Place.sql[0]).toContain('"createdAt"');
+    expect(Place.sql[0]).not.toContain('"updatedAt"');
+    expect(Place.sql).toHaveLength(1); // no trigger
+  });
+
+  it('disables all auto columns', () => {
+    const Place = defineTable('Place', (col) => ({
+      name: col.text().notNull(),
+    }), { id: false, createdAt: false, updatedAt: false });
+
+    expect(Place.sql[0]).toBe(`CREATE TABLE "Place" (
+  "name" TEXT NOT NULL
+);`);
+    expect(Place.sql).toHaveLength(1);
+  });
+
+  it('uses custom column names', () => {
+    const Place = defineTable('Place', (col) => ({
+      name: col.text().notNull(),
+    }), {
+      idColumn: 'place_id',
+      createdAtColumn: 'created_at',
+      updatedAtColumn: 'updated_at',
+    });
+
+    expect(Place.sql[0]).toContain('"place_id" INTEGER PRIMARY KEY');
+    expect(Place.sql[0]).toContain('"created_at" TEXT NOT NULL DEFAULT');
+    expect(Place.sql[0]).toContain('"updated_at" TEXT NOT NULL DEFAULT');
+    expect(Place.sql[1]).toContain('CREATE TRIGGER "Place_updated_at_trg"');
+    expect(Place.sql[1]).toContain('SET "updated_at" = datetime');
+    expect(Place.sql[1]).toContain('WHERE "place_id" = NEW."place_id"');
+  });
+
+  it('uses first user column as pk when id disabled with updatedAt enabled', () => {
+    const Place = defineTable('Place', (col) => ({
+      uuid: col.text().notNull(),
+      name: col.text().notNull(),
+    }), { id: false });
+
+    expect(Place.sql[1]).toContain('WHERE "uuid" = NEW."uuid"');
   });
 });
 
@@ -128,7 +197,7 @@ describe('createIndex', () => {
     }));
 
     const sql = createIndex(Place, ['name'], { unique: true });
-    expect(sql).toBe('CREATE UNIQUE INDEX "Place_name_unique" ON "Place"("name");');
+    expect(sql).toBe('CREATE UNIQUE INDEX "Place_name_uq" ON "Place"("name");');
   });
 
   it('creates composite index', () => {
@@ -222,7 +291,18 @@ describe('dropTable', () => {
 
     expect(result).toHaveLength(2);
     expect(result[0]).toBe('DROP TABLE "Place";');
-    expect(result[1]).toBe('DROP TRIGGER IF EXISTS "Place_updatedAt";');
+    expect(result[1]).toBe('DROP TRIGGER IF EXISTS "Place_updatedAt_trg";');
+  });
+
+  it('drops table with custom updatedAt column name', () => {
+    const Place = defineTable('Place', (col) => ({
+      name: col.text().notNull(),
+    }), { updatedAtColumn: 'updated_at' });
+
+    const result = dropTable(Place, 'updated_at');
+
+    expect(result[0]).toBe('DROP TABLE "Place";');
+    expect(result[1]).toBe('DROP TRIGGER IF EXISTS "Place_updated_at_trg";');
   });
 
   it('works with useTable', () => {

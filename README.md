@@ -1,50 +1,68 @@
 # d1-kyt
 
-[![Cloudflare D1](https://img.shields.io/badge/Cloudflare-D1-F38020?logo=cloudflare)](https://developers.cloudflare.com/d1/)
-[![Kysely](https://img.shields.io/badge/Kysely-Query_Builder-blue)](https://kysely.dev/)
-[![npm](https://img.shields.io/npm/v/d1-kyt)](https://www.npmjs.com/package/d1-kyt)
-
-Highly opinionated [Cloudflare D1](https://developers.cloudflare.com/d1/) + [Kysely](https://kysely.dev/) toolkit.
-
-Not an ORM, no magic, no runtime overhead. Just a wrapper with helpers that relies on Kysely's type inference.
+Opinionated [Cloudflare D1](https://developers.cloudflare.com/d1/) + [Kysely](https://kysely.dev/) toolkit.
 
 **ky**(sely) + **t**(oolkit) = **kyt**
 
+> **Not an ORM.** Thin wrapper with helpers that relies on Kysely's type inference. No magic, no runtime overhead.
 
-## Install
-
-```bash
-npm install d1-kyt kysely kysely-codegen
-```
-
-## CLI
-
-```bash
-d1-kyt init                      # creates d1-kyt/ and db/index.ts
-d1-kyt migrate:create <name>     # creates d1-kyt/migrations/0001_<name>.ts
-d1-kyt migrate:build             # compiles d1-kyt/migrations/*.ts → db/migrations/*.sql
-d1-kyt typegen                   # runs kysely-codegen
-```
-
-Reads `wrangler.jsonc` to detect `migrations_dir` automatically.
-
-### Configuration
+## Migration DSL
 
 ```typescript
-// d1-kyt/config.ts
+// d1-kyt/migrations/0001_create_user_table.ts
 
-import { defineConfig } from 'd1-kyt/config';
+import { defineTable, createIndex } from 'd1-kyt/migrate';
 
-export default defineConfig({
-  migrationsDir: 'db/migrations',
-  dbDir: 'db',
-  namingStrategy: 'sequential', // or 'timestamp'
+const User = defineTable('User', (col) => ({
+  externalId: col.text().notNull(),
+  email: col.text().notNull(),
+  name: col.text(),
+}));
+
+export const migration = () => [
+  ...User.sql,
+  createIndex(User, ['externalId'], { unique: true }),
+  createIndex(User, ['email'], { unique: true }),
+];
+```
+
+### Customizing Auto Columns
+
+```typescript
+// Disable all auto columns
+const Event = defineTable('Event', (col) => ({
+  uuid: col.text().notNull(),
+  name: col.text().notNull(),
+}), { id: false, createdAt: false, updatedAt: false });
+
+// Custom column names (snake_case)
+const User = defineTable('user', (col) => ({
+  email: col.text().notNull(),
+}), {
+  idColumn: 'user_id',
+  createdAtColumn: 'created_at',
+  updatedAtColumn: 'updated_at',
 });
 ```
 
-## Usage
+### Later Migrations
 
-### Query Builder
+Use `createUseTable` for type-safe references to existing tables:
+
+```typescript
+import type { DB } from '../../db/generated';
+import { createUseTable, addColumn, createIndex } from 'd1-kyt/migrate';
+
+const useTable = createUseTable<DB>();
+const User = useTable('User');
+
+export const migration = () => [
+  addColumn(User, 'age', (col) => col.integer()),
+  createIndex(User, ['age']),
+];
+```
+
+## Query Builder
 
 ```typescript
 // src/queries.ts
@@ -91,103 +109,59 @@ app.post('/users', async (c) => {
 });
 ```
 
-### Migration DSL
+## Install
 
-```typescript
-// d1-kyt/migrations/0001_create_user_table.ts
-
-import { defineTable, createIndex } from 'd1-kyt/migrate';
-
-const User = defineTable('User', (col) => ({
-  externalId: col.text().notNull(), // ULID or similar
-  email: col.text().notNull(),
-  name: col.text(),
-}));
-
-export const migration = () => [
-  ...User.sql,
-  createIndex(User, ['externalId'], { unique: true }),
-  createIndex(User, ['email'], { unique: true }),
-];
+```bash
+npm install d1-kyt kysely kysely-codegen
 ```
 
-### Later Migrations
+## CLI
 
-Import `useTable` from the generated `db/index.ts`:
-
-```typescript
-// d1-kyt/migrations/0042_add_age_to_user_table.ts
-
-import { useTable } from '../../db';
-import { addColumn, createIndex } from 'd1-kyt/migrate';
-
-const User = useTable('User');
-
-export const migration = () => [
-  addColumn(User, 'age', (col) => col.integer()),
-  createIndex(User, ['age']),
-];
+```bash
+d1-kyt init                      # creates d1-kyt/ folder with config
+d1-kyt migrate:create <name>     # creates d1-kyt/migrations/0001_<name>.ts
+d1-kyt migrate:build             # compiles *.ts → db/migrations/*.sql
+d1-kyt typegen                   # runs kysely-codegen
 ```
 
-### Triggers
+Reads `wrangler.jsonc` to detect `migrations_dir` automatically.
+
+### Configuration
 
 ```typescript
-import { useTable } from '../../db';
-import { createTrigger, dropTrigger } from 'd1-kyt/migrate';
+// d1-kyt/config.ts
 
-const Merchant = useTable('Merchant');
+import { defineConfig } from 'd1-kyt/config';
 
-export const migration = () => [
-  createTrigger('merchant_fts_insert', 'AFTER INSERT', Merchant, `
-    INSERT INTO "MerchantFts"(rowid, name) VALUES (NEW.id, NEW.name);
-  `),
-];
-
-// To drop a trigger:
-// dropTrigger('merchant_fts_insert')
-```
-
-### Seed Data
-
-```typescript
-import { useTable } from '../../db';
-import { insert } from 'd1-kyt/migrate';
-
-const AdType = useTable('AdType');
-
-export const migration = () => [
-  insert(AdType, [
-    { name: 'banner', active: true },
-    { name: 'popup', active: false },
-  ]),
-];
+export default defineConfig({
+  migrationsDir: 'db/migrations',
+  dbDir: 'db',
+  namingStrategy: 'sequential', // or 'timestamp'
+});
 ```
 
 ## Conventions
 
-- Singular `PascalCase` table names
-- `camelCase` column names
-- Auto `id`, `createdAt`, `updatedAt` on every table
+- Auto `id`, `createdAt`, `updatedAt` on every table (configurable)
 - Auto trigger for `updatedAt`
+- Index naming: `{table}_{cols}_idx`, `{table}_{cols}_uq`
+- Trigger naming: `{table}_{col}_trg`
 
 ## API
 
-| Function                          | Description                       |
-| --------------------------------- | --------------------------------- |
-| `queryAll(db, query)`             | Execute, return all rows          |
-| `queryFirst(db, query)`           | Execute, return first row or null |
-| `queryRun(db, query)`             | Execute mutation                  |
-| `queryBatch(db, queries)`         | Execute batch                     |
-| `defineTable(name, fn)`           | Define new table                  |
-| `createUseTable<DB>()`            | Factory for typed table refs      |
-| `useTable<T>(name)`               | Reference table (manual typing)   |
-| `createIndex(table, cols, opts?)` | Create index                      |
-| `addColumn(table, col, fn)`       | Add column                        |
-| `dropTable(table)`                | Drop table + trigger              |
-| `dropIndex(name)`                 | Drop index                        |
-| `createTrigger(name, timing, table, body)` | Create trigger           |
-| `dropTrigger(name)`               | Drop trigger                      |
-| `insert(table, rows)`             | Insert seed data                  |
+| Function                               | Description                       |
+| -------------------------------------- | --------------------------------- |
+| `defineTable(name, fn, opts?)`         | Define new table                  |
+| `createUseTable<DB>()`                 | Factory for typed table refs      |
+| `useTable<T>(name)`                    | Reference table (manual typing)   |
+| `createIndex(table, cols, opts?)`      | Create index                      |
+| `addColumn(table, col, fn)`            | Add column                        |
+| `dropTable(table, updatedAtCol?)`      | Drop table + trigger              |
+| `dropIndex(name)`                      | Drop index                        |
+| `queryAll(db, query)`                  | Execute, return all rows          |
+| `queryFirst(db, query)`                | Execute, return first row or null |
+| `queryRun(db, query)`                  | Execute mutation                  |
+| `queryBatch(db, queries)`              | Execute batch                     |
 
 ## License
 

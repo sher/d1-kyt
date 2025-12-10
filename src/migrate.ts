@@ -68,17 +68,43 @@ const columnBuilder: ColumnBuilder = {
 };
 
 // ----------------------------------------------------------------------------
+// Table Options
+// ----------------------------------------------------------------------------
+
+/**
+ * Options for auto-generated columns in defineTable.
+ * All options default to true for backwards compatibility.
+ */
+export interface TableOptions {
+  /** Add "id" INTEGER PRIMARY KEY AUTOINCREMENT column. Default: true */
+  id?: boolean;
+  /** Add "createdAt" TEXT column with default datetime('now'). Default: true */
+  createdAt?: boolean;
+  /** Add "updatedAt" TEXT column with trigger. Default: true */
+  updatedAt?: boolean;
+  /** Custom name for id column. Default: "id" */
+  idColumn?: string;
+  /** Custom name for createdAt column. Default: "createdAt" */
+  createdAtColumn?: string;
+  /** Custom name for updatedAt column. Default: "updatedAt" */
+  updatedAtColumn?: string;
+}
+
+// ----------------------------------------------------------------------------
 // Table Types
 // ----------------------------------------------------------------------------
 
 /**
- * Auto-generated columns added to every table.
+ * Auto-generated columns - conditional based on options.
  */
-interface AutoColumns {
-  id: unknown;
-  createdAt: unknown;
-  updatedAt: unknown;
-}
+type AutoColumns<
+  O extends TableOptions,
+  IdCol extends string = O['idColumn'] extends string ? O['idColumn'] : 'id',
+  CreatedCol extends string = O['createdAtColumn'] extends string ? O['createdAtColumn'] : 'createdAt',
+  UpdatedCol extends string = O['updatedAtColumn'] extends string ? O['updatedAtColumn'] : 'updatedAt',
+> = (O['id'] extends false ? {} : { [K in IdCol]: unknown }) &
+  (O['createdAt'] extends false ? {} : { [K in CreatedCol]: unknown }) &
+  (O['updatedAt'] extends false ? {} : { [K in UpdatedCol]: unknown });
 
 /**
  * Table reference - carries type information for column names.
@@ -101,19 +127,35 @@ export interface DefinedTable<T> extends Table<T> {
 
 type TableDefFn<T extends Record<string, ColumnDef>> = (col: ColumnBuilder) => T;
 
+/** Default options for defineTable */
+const defaultTableOptions: Required<TableOptions> = {
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  idColumn: 'id',
+  createdAtColumn: 'createdAt',
+  updatedAtColumn: 'updatedAt',
+};
+
 /**
- * Define a table with auto-generated id, createdAt, updatedAt columns.
- * Returns a Table object with sql property containing CREATE TABLE + CREATE TRIGGER.
+ * Define a table with configurable auto-generated columns.
+ * By default adds id, createdAt, updatedAt columns.
+ * Returns a Table object with sql property containing CREATE TABLE + optional CREATE TRIGGER.
  */
-export function defineTable<T extends Record<string, ColumnDef>>(
+export function defineTable<T extends Record<string, ColumnDef>, O extends TableOptions = {}>(
   name: string,
-  fn: TableDefFn<T>
-): DefinedTable<{ [K in keyof T]: unknown } & AutoColumns> {
+  fn: TableDefFn<T>,
+  options?: O
+): DefinedTable<{ [K in keyof T]: unknown } & AutoColumns<O>> {
+  const opts = { ...defaultTableOptions, ...options };
   const columns = fn(columnBuilder);
   const columnDefs: string[] = [];
+  const sqlStatements: string[] = [];
 
   // Auto id column
-  columnDefs.push(`  "id" INTEGER PRIMARY KEY AUTOINCREMENT`);
+  if (opts.id) {
+    columnDefs.push(`  "${opts.idColumn}" INTEGER PRIMARY KEY AUTOINCREMENT`);
+  }
 
   // User-defined columns
   for (const [colName, colDef] of Object.entries(columns)) {
@@ -128,22 +170,44 @@ export function defineTable<T extends Record<string, ColumnDef>>(
   }
 
   // Auto timestamp columns
-  columnDefs.push(`  "createdAt" TEXT NOT NULL DEFAULT (datetime('now'))`);
-  columnDefs.push(`  "updatedAt" TEXT NOT NULL DEFAULT (datetime('now'))`);
+  if (opts.createdAt) {
+    columnDefs.push(`  "${opts.createdAtColumn}" TEXT NOT NULL DEFAULT (datetime('now'))`);
+  }
+  if (opts.updatedAt) {
+    columnDefs.push(`  "${opts.updatedAtColumn}" TEXT NOT NULL DEFAULT (datetime('now'))`);
+  }
 
   const createTableSql = `CREATE TABLE "${name}" (\n${columnDefs.join(',\n')}\n);`;
+  sqlStatements.push(createTableSql);
 
-  const createTriggerSql = `CREATE TRIGGER "${name}_updatedAt"
+  // Only create trigger if updatedAt is enabled
+  if (opts.updatedAt) {
+    // Determine primary key column for WHERE clause
+    const pkColumn = opts.id ? opts.idColumn : findPrimaryKeyColumn(columns);
+    if (pkColumn) {
+      const createTriggerSql = `CREATE TRIGGER "${name}_${opts.updatedAtColumn}_trg"
 AFTER UPDATE ON "${name}"
 FOR EACH ROW
 BEGIN
-  UPDATE "${name}" SET "updatedAt" = datetime('now') WHERE "id" = NEW."id";
+  UPDATE "${name}" SET "${opts.updatedAtColumn}" = datetime('now') WHERE "${pkColumn}" = NEW."${pkColumn}";
 END;`;
+      sqlStatements.push(createTriggerSql);
+    }
+  }
 
   return {
     _name: name,
-    sql: [createTableSql, createTriggerSql],
-  };
+    sql: sqlStatements,
+  } as DefinedTable<{ [K in keyof T]: unknown } & AutoColumns<O>>;
+}
+
+/**
+ * Find a column that could serve as primary key (first column if no id).
+ * Returns null if no suitable column found.
+ */
+function findPrimaryKeyColumn(columns: Record<string, ColumnDef>): string | null {
+  const keys = Object.keys(columns);
+  return keys.length > 0 ? keys[0] : null;
 }
 
 /**
@@ -198,7 +262,7 @@ export function createIndex<T>(
 ): string {
   const tableName = table._name;
   const unique = options?.unique ?? false;
-  const suffix = unique ? 'unique' : 'idx';
+  const suffix = unique ? 'uq' : 'idx';
   const indexName = options?.name ?? `${tableName}_${columns.join('_')}_${suffix}`;
   const columnList = columns.map((c) => `"${c}"`).join(', ');
   const uniqueKeyword = unique ? 'UNIQUE ' : '';
@@ -243,99 +307,12 @@ export function addColumn<T, K extends string>(
 
 /**
  * Drop a table and its updatedAt trigger.
+ * @param updatedAtColumn - Custom updatedAt column name if using custom naming. Default: "updatedAt"
  */
-export function dropTable<T>(table: Table<T>): string[] {
+export function dropTable<T>(table: Table<T>, updatedAtColumn: string = 'updatedAt'): string[] {
   const name = table._name;
   return [
     `DROP TABLE "${name}";`,
-    `DROP TRIGGER IF EXISTS "${name}_updatedAt";`,
+    `DROP TRIGGER IF EXISTS "${name}_${updatedAtColumn}_trg";`,
   ];
-}
-
-// ----------------------------------------------------------------------------
-// Trigger Operations
-// ----------------------------------------------------------------------------
-
-type TriggerTiming =
-  | 'BEFORE INSERT'
-  | 'AFTER INSERT'
-  | 'BEFORE UPDATE'
-  | 'AFTER UPDATE'
-  | 'BEFORE DELETE'
-  | 'AFTER DELETE';
-
-/**
- * Create a trigger on a table.
- * Body should contain the SQL statements without BEGIN/END.
- *
- * @example
- * ```typescript
- * createTrigger('merchant_fts_insert', 'AFTER INSERT', Merchant, `
- *   INSERT INTO "MerchantFts"(rowid, name) VALUES (NEW.id, NEW.name);
- * `)
- * ```
- */
-export function createTrigger<T>(
-  name: string,
-  timing: TriggerTiming,
-  table: Table<T>,
-  body: string
-): string {
-  const trimmedBody = body.trim();
-  return `CREATE TRIGGER "${name}"
-${timing} ON "${table._name}"
-FOR EACH ROW
-BEGIN
-  ${trimmedBody}
-END;`;
-}
-
-/**
- * Drop a trigger by name.
- */
-export function dropTrigger(name: string): string {
-  return `DROP TRIGGER IF EXISTS "${name}";`;
-}
-
-// ----------------------------------------------------------------------------
-// Data Operations
-// ----------------------------------------------------------------------------
-
-type InsertValue = string | number | boolean | null;
-
-/**
- * Insert rows into a table.
- * Values are automatically quoted based on type.
- *
- * @example
- * ```typescript
- * insert(AdImageType, [
- *   { name: 'merchant' },
- *   { name: 'blogDesktop' },
- * ])
- * ```
- */
-export function insert<T>(
-  table: Table<T>,
-  rows: Record<string, InsertValue>[]
-): string {
-  if (rows.length === 0) return '';
-
-  const columns = Object.keys(rows[0]);
-  const columnList = columns.map((c) => `"${c}"`).join(', ');
-
-  const valuesList = rows
-    .map((row) => {
-      const values = columns.map((col) => {
-        const val = row[col];
-        if (val === null) return 'NULL';
-        if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
-        if (typeof val === 'boolean') return val ? '1' : '0';
-        return String(val);
-      });
-      return `(${values.join(', ')})`;
-    })
-    .join(',\n  ');
-
-  return `INSERT INTO "${table._name}" (${columnList}) VALUES\n  ${valuesList};`;
 }
