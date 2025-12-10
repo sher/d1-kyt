@@ -22,7 +22,7 @@ Commands:
   typegen           Generate TypeScript types (wraps kysely-codegen)
 
 Options:
-  --db-dir <dir>    Directory for generated.ts and index.ts (default: db)
+  --db-dir <dir>    Directory for index.ts (default: db)
   --help, -h        Show this help message
   --version, -v     Show version
 
@@ -155,7 +155,7 @@ export default defineConfig({
     const kyselyConfig = {
       dialect: 'sqlite',
       excludePattern: '(_cf_|d1_)*',
-      outFile: `${dbDir}/generated.ts`,
+      outFile: 'generated.ts',
       camelCase: true,
     };
     writeFileSync(kyselyConfigPath, JSON.stringify(kyselyConfig, null, 2) + '\n');
@@ -174,7 +174,7 @@ export default defineConfig({
   // Create db/index.ts with useTable helper
   const indexPath = join(absoluteDbDir, 'index.ts');
   if (!existsSync(indexPath)) {
-    const template = `import type { DB } from './generated';
+    const template = `import type { DB } from '../generated';
 import { createUseTable } from 'd1-kyt/migrate';
 
 export const useTable = createUseTable<DB>();
