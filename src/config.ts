@@ -6,7 +6,6 @@ export type NamingStrategy = 'sequential' | 'timestamp';
 
 export interface D1KytConfig {
   migrationsDir: string;
-  dbDir: string;
   namingStrategy: NamingStrategy;
 }
 

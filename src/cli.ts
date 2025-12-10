@@ -10,7 +10,7 @@ const HELP = `
 d1-kyt v${VERSION} - Opinionated Cloudflare D1 + Kysely toolkit
 
 Usage:
-  d1-kyt init [--db-dir <dir>]
+  d1-kyt init
   d1-kyt migrate:create <name>
   d1-kyt migrate:build
   d1-kyt typegen
@@ -22,13 +22,11 @@ Commands:
   typegen           Generate TypeScript types (wraps kysely-codegen)
 
 Options:
-  --db-dir <dir>    Directory for index.ts (default: db)
   --help, -h        Show this help message
   --version, -v     Show version
 
 Examples:
   d1-kyt init
-  d1-kyt init --db-dir src/db
   d1-kyt migrate:create create_users
   d1-kyt migrate:build
   d1-kyt typegen
@@ -110,7 +108,7 @@ function readWranglerConfig(): WranglerD1Config | null {
 // Commands
 // ----------------------------------------------------------------------------
 
-function cmdInit(dbDir: string): void {
+function cmdInit(): void {
   const wrangler = readWranglerConfig();
   const migrationsDir = wrangler?.migrationsDir ?? 'db/migrations';
 
@@ -118,28 +116,27 @@ function cmdInit(dbDir: string): void {
     console.log(`Detected wrangler migrations_dir: ${migrationsDir}`);
   }
 
-  // Create .d1-kyt directory
+  // Create d1-kyt directory
   const d1KytDir = resolve(process.cwd(), D1_KYT_DIR);
   if (!existsSync(d1KytDir)) {
     mkdirSync(d1KytDir, { recursive: true });
     console.log(`Created: ${D1_KYT_DIR}/`);
   }
 
-  // Create .d1-kyt/migrations
+  // Create d1-kyt/migrations
   const srcMigrationsDir = join(d1KytDir, 'migrations');
   if (!existsSync(srcMigrationsDir)) {
     mkdirSync(srcMigrationsDir, { recursive: true });
     console.log(`Created: ${D1_KYT_DIR}/migrations/`);
   }
 
-  // Create .d1-kyt/config.ts
+  // Create d1-kyt/config.ts
   const configPath = getConfigPath();
   if (!existsSync(configPath)) {
     const configTemplate = `import { defineConfig } from 'd1-kyt/config';
 
 export default defineConfig({
   migrationsDir: '${migrationsDir}',
-  dbDir: '${dbDir}',
   namingStrategy: 'sequential',
 });
 `;
@@ -149,7 +146,7 @@ export default defineConfig({
     console.log(`Skipped: ${D1_KYT_DIR}/${CONFIG_FILE} (already exists)`);
   }
 
-  // Create .d1-kyt/kysely-codegen.json
+  // Create d1-kyt/kysely-codegen.json
   const kyselyConfigPath = getKyselyConfigPath();
   if (!existsSync(kyselyConfigPath)) {
     const kyselyConfig = {
@@ -164,25 +161,18 @@ export default defineConfig({
     console.log(`Skipped: ${D1_KYT_DIR}/${KYSELY_CONFIG_FILE} (already exists)`);
   }
 
-  // Create db directory
-  const absoluteDbDir = resolve(process.cwd(), dbDir);
-  if (!existsSync(absoluteDbDir)) {
-    mkdirSync(absoluteDbDir, { recursive: true });
-    console.log(`Created: ${dbDir}/`);
-  }
-
-  // Create db/index.ts with useTable helper
-  const indexPath = join(absoluteDbDir, 'index.ts');
+  // Create index.ts with useTable helper in project root
+  const indexPath = resolve(process.cwd(), 'index.ts');
   if (!existsSync(indexPath)) {
-    const template = `import type { DB } from '../generated';
+    const template = `import type { DB } from './generated';
 import { createUseTable } from 'd1-kyt/migrate';
 
 export const useTable = createUseTable<DB>();
 `;
     writeFileSync(indexPath, template);
-    console.log(`Created: ${dbDir}/index.ts`);
+    console.log(`Created: index.ts`);
   } else {
-    console.log(`Skipped: ${dbDir}/index.ts (already exists)`);
+    console.log(`Skipped: index.ts (already exists)`);
   }
 
   console.log(`\nNext steps:`);
@@ -346,15 +336,9 @@ async function main(): Promise<void> {
   }
 
   switch (command) {
-    case 'init': {
-      let dbDir = 'db';
-      const dbDirIdx = args.indexOf('--db-dir');
-      if (dbDirIdx !== -1 && args[dbDirIdx + 1]) {
-        dbDir = args[dbDirIdx + 1];
-      }
-      cmdInit(dbDir);
+    case 'init':
+      cmdInit();
       break;
-    }
 
     case 'migrate:create': {
       const name = args[1];
