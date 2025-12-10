@@ -112,7 +112,8 @@ app.post('/users', async (c) => {
 ## Install
 
 ```bash
-npm install d1-kyt kysely kysely-codegen
+npm install d1-kyt kysely
+npm install -D kysely-codegen
 ```
 
 ## CLI
