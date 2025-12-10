@@ -152,7 +152,7 @@ export default defineConfig({
     const kyselyConfig = {
       dialect: 'sqlite',
       excludePattern: '(_cf_|d1_)*',
-      outFile: 'generated.ts',
+      outFile: `${D1_KYT_DIR}/generated.ts`,
       camelCase: true,
     };
     writeFileSync(kyselyConfigPath, JSON.stringify(kyselyConfig, null, 2) + '\n');
@@ -161,8 +161,8 @@ export default defineConfig({
     console.log(`Skipped: ${D1_KYT_DIR}/${KYSELY_CONFIG_FILE} (already exists)`);
   }
 
-  // Create index.ts with useTable helper in project root
-  const indexPath = resolve(process.cwd(), 'index.ts');
+  // Create d1-kyt/index.ts with useTable helper
+  const indexPath = join(d1KytDir, 'index.ts');
   if (!existsSync(indexPath)) {
     const template = `import type { DB } from './generated';
 import { createUseTable } from 'd1-kyt/migrate';
@@ -170,9 +170,9 @@ import { createUseTable } from 'd1-kyt/migrate';
 export const useTable = createUseTable<DB>();
 `;
     writeFileSync(indexPath, template);
-    console.log(`Created: index.ts`);
+    console.log(`Created: ${D1_KYT_DIR}/index.ts`);
   } else {
-    console.log(`Skipped: index.ts (already exists)`);
+    console.log(`Skipped: ${D1_KYT_DIR}/index.ts (already exists)`);
   }
 
   console.log(`\nNext steps:`);
