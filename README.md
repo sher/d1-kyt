@@ -26,42 +26,6 @@ export const migration = () => [
 ];
 ```
 
-### Customizing Auto Columns
-
-```typescript
-// Disable all auto columns
-const Event = defineTable('Event', (col) => ({
-  uuid: col.text().notNull(),
-  name: col.text().notNull(),
-}), { primaryKey: false, createdAt: false, updatedAt: false });
-
-// Custom column names (snake_case)
-const User = defineTable('user', (col) => ({
-  email: col.text().notNull(),
-}), {
-  primaryKeyColumn: 'user_id',
-  createdAtColumn: 'created_at',
-  updatedAtColumn: 'updated_at',
-});
-```
-
-### Later Migrations
-
-Use `createUseTable` for type-safe references to existing tables:
-
-```typescript
-import type { DB } from '../../db/generated';
-import { createUseTable, addColumn, createIndex } from 'd1-kyt/migrate';
-
-const useTable = createUseTable<DB>();
-const User = useTable('User');
-
-export const migration = () => [
-  addColumn(User, 'age', (col) => col.integer()),
-  createIndex(User, ['age']),
-];
-```
-
 ## Query Builder
 
 ```typescript
@@ -81,7 +45,7 @@ export const insertUser = (email: string, name: string) =>
   db.insertInto('User').values({ email, name }).returning(['id']).compile();
 ```
 
-### Execute Queries
+## Execute Queries
 
 ```typescript
 // src/app.ts
@@ -107,6 +71,42 @@ app.post('/users', async (c) => {
   const [user] = await queryAll(c.env.DB, q.insertUser(email, name));
   return c.json(user, 201);
 });
+```
+
+## Customizing Auto Columns
+
+```typescript
+// Disable all auto columns
+const Event = defineTable('Event', (col) => ({
+  uuid: col.text().notNull(),
+  name: col.text().notNull(),
+}), { primaryKey: false, createdAt: false, updatedAt: false });
+
+// Custom column names (snake_case)
+const User = defineTable('user', (col) => ({
+  email: col.text().notNull(),
+}), {
+  primaryKeyColumn: 'user_id',
+  createdAtColumn: 'created_at',
+  updatedAtColumn: 'updated_at',
+});
+```
+
+## Later Migrations
+
+Use `createUseTable` for type-safe references to existing tables:
+
+```typescript
+import type { DB } from '../../db/generated';
+import { createUseTable, addColumn, createIndex } from 'd1-kyt/migrate';
+
+const useTable = createUseTable<DB>();
+const User = useTable('User');
+
+export const migration = () => [
+  addColumn(User, 'age', (col) => col.integer()),
+  createIndex(User, ['age']),
+];
 ```
 
 ## Install
