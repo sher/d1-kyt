@@ -152,7 +152,7 @@ export default defineConfig({
     const kyselyConfig = {
       dialect: 'sqlite',
       excludePattern: '(_cf_|d1_)*',
-      outFile: `${D1_KYT_DIR}/generated.ts`,
+      outFile: 'generated.ts',
       camelCase: true,
     };
     writeFileSync(kyselyConfigPath, JSON.stringify(kyselyConfig, null, 2) + '\n');
