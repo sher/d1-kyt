@@ -12,7 +12,7 @@ type SqliteType = 'TEXT' | 'INTEGER' | 'REAL' | 'BLOB';
 interface ColumnDefInternal {
   type: SqliteType;
   isNotNull: boolean;
-  defaultValue: string | null;
+  defaultValue: string | number | null;
 }
 
 /**
@@ -20,28 +20,28 @@ interface ColumnDefInternal {
  * Only notNull() and default() are available.
  * No unique(), references(), check() - by design.
  */
-export interface ColumnDef {
-  notNull(): ColumnDef;
-  default(value: string): ColumnDef;
+export interface ColumnDef<T = any> {
+  notNull(): ColumnDef<T>;
+  default(value: T): ColumnDef<T>;
   /** @internal */
   _def: ColumnDefInternal;
 }
 
-function createColumnDef(type: SqliteType): ColumnDef {
+function createColumnDef<T>(type: SqliteType): ColumnDef<T> {
   const def: ColumnDefInternal = {
     type,
     isNotNull: false,
     defaultValue: null,
   };
 
-  const columnDef: ColumnDef = {
+  const columnDef: ColumnDef<T> = {
     _def: def,
     notNull() {
       def.isNotNull = true;
       return columnDef;
     },
-    default(value: string) {
-      def.defaultValue = value;
+    default(value: T) {
+      def.defaultValue = value as string | number;
       return columnDef;
     },
   };
@@ -54,10 +54,10 @@ function createColumnDef(type: SqliteType): ColumnDef {
  * Only SQLite types: text, integer, real, blob.
  */
 export interface ColumnBuilder {
-  text(): ColumnDef;
-  integer(): ColumnDef;
-  real(): ColumnDef;
-  blob(): ColumnDef;
+  text(): ColumnDef<string>;
+  integer(): ColumnDef<number>;
+  real(): ColumnDef<number>;
+  blob(): ColumnDef<string>;
 }
 
 const columnBuilder: ColumnBuilder = {
@@ -125,7 +125,7 @@ export interface DefinedTable<T> extends Table<T> {
 // Table Definition
 // ----------------------------------------------------------------------------
 
-type TableDefFn<T extends Record<string, ColumnDef>> = (col: ColumnBuilder) => T;
+type TableDefFn<T extends Record<string, ColumnDef<any>>> = (col: ColumnBuilder) => T;
 
 /** Default options for defineTable */
 const defaultTableOptions: Required<TableOptions> = {
@@ -142,7 +142,7 @@ const defaultTableOptions: Required<TableOptions> = {
  * By default adds id, createdAt, updatedAt columns.
  * Returns a Table object with sql property containing CREATE TABLE + optional CREATE TRIGGER.
  */
-export function defineTable<T extends Record<string, ColumnDef>, O extends TableOptions = {}>(
+export function defineTable<T extends Record<string, ColumnDef<any>>, O extends TableOptions = {}>(
   name: string,
   fn: TableDefFn<T>,
   options?: O
@@ -164,7 +164,8 @@ export function defineTable<T extends Record<string, ColumnDef>, O extends Table
       sql += ' NOT NULL';
     }
     if (colDef._def.defaultValue !== null) {
-      sql += ` DEFAULT ${colDef._def.defaultValue}`;
+      const v = colDef._def.defaultValue;
+      sql += ` DEFAULT ${typeof v === 'string' ? `'${v}'` : v}`;
     }
     columnDefs.push(sql);
   }
@@ -205,7 +206,7 @@ END;`;
  * Find a column that could serve as primary key (first column if no id).
  * Returns null if no suitable column found.
  */
-function findPrimaryKeyColumn(columns: Record<string, ColumnDef>): string | null {
+function findPrimaryKeyColumn(columns: Record<string, ColumnDef<any>>): string | null {
   const keys = Object.keys(columns);
   return keys.length > 0 ? keys[0] : null;
 }
@@ -288,7 +289,7 @@ export function dropIndex(name: string): string {
 export function addColumn<T, K extends string>(
   table: Table<T>,
   column: K,
-  fn: (col: ColumnBuilder) => ColumnDef
+  fn: (col: ColumnBuilder) => ColumnDef<any>
 ): string {
   const colDef = fn(columnBuilder);
   let sql = `ALTER TABLE "${table._name}" ADD COLUMN "${column}" ${colDef._def.type}`;
@@ -296,7 +297,8 @@ export function addColumn<T, K extends string>(
     sql += ' NOT NULL';
   }
   if (colDef._def.defaultValue !== null) {
-    sql += ` DEFAULT ${colDef._def.defaultValue}`;
+    const v = colDef._def.defaultValue;
+    sql += ` DEFAULT ${typeof v === 'string' ? `'${v}'` : v}`;
   }
   return sql + ';';
 }

@@ -47,8 +47,8 @@ describe('defineTable', () => {
   it('handles default values', () => {
     const Post = defineTable('Post', (col) => ({
       title: col.text().notNull(),
-      status: col.text().notNull().default("'draft'"),
-      views: col.integer().default('0'),
+      status: col.text().notNull().default('draft'),
+      views: col.integer().default(0),
     }));
 
     expect(Post.sql[0]).toContain(`"status" TEXT NOT NULL DEFAULT 'draft'`);
@@ -264,7 +264,7 @@ describe('addColumn', () => {
     }));
 
     const sql = addColumn(Place, 'featured', (col) =>
-      col.integer().notNull().default('0')
+      col.integer().notNull().default(0)
     );
     expect(sql).toBe('ALTER TABLE "Place" ADD COLUMN "featured" INTEGER NOT NULL DEFAULT 0;');
   });
