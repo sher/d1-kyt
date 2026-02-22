@@ -1,6 +1,6 @@
 {
   "name": "d1-kyt",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "description": "Opinionated Cloudflare D1 + Kysely toolkit",
   "type": "module",
   "main": "dist/index.js",
@@ -51,5 +51,8 @@
     "kysely": "0.28.11",
     "typescript": "5.9.3",
     "vitest": "4.0.18"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.6.2"
   }
 }

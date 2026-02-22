@@ -127,6 +127,18 @@ d1-kyt typegen                   # runs kysely-codegen
 
 Reads `wrangler.jsonc` to detect `migrations_dir` automatically.
 
+### Type Generation
+
+`d1-kyt typegen` requires a `DATABASE_URL` environment variable pointing to a local SQLite database. kysely-codegen connects to this database to infer types.
+
+```bash
+# Apply migrations to local D1 database first
+wrangler d1 migrations apply <db-name> --local
+
+# Then generate types (local D1 databases live in .wrangler/)
+DATABASE_URL=.wrangler/state/v3/d1/<db-id>/db.sqlite d1-kyt typegen
+```
+
 ### Configuration
 
 ```typescript
