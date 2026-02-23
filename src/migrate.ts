@@ -14,6 +14,7 @@ interface ColumnDefInternal {
   isNotNull: boolean;
   defaultValue: string | number | null;
   isJson: boolean;
+  jsonOverrideType?: string;
 }
 
 // ----------------------------------------------------------------------------
@@ -42,12 +43,13 @@ export interface ColumnDef<T = any> {
   _def: ColumnDefInternal;
 }
 
-function createColumnDef<T>(type: SqliteType, isJson = false): ColumnDef<T> {
+function createColumnDef<T>(type: SqliteType, isJson = false, overrideType?: string): ColumnDef<T> {
   const def: ColumnDefInternal = {
     type,
     isNotNull: false,
     defaultValue: null,
     isJson,
+    jsonOverrideType: overrideType,
   };
 
   const columnDef: ColumnDef<T> = {
@@ -74,8 +76,8 @@ export interface ColumnBuilder {
   integer(): ColumnDef<number>;
   real(): ColumnDef<number>;
   blob(): ColumnDef<string>;
-  /** JSON stored as TEXT. Emits TEXT in SQL; adds "unknown" override to kysely-codegen config. */
-  json<T = unknown>(): ColumnDef<T>;
+  /** JSON stored as TEXT. Emits TEXT in SQL; adds override to kysely-codegen config (defaults to "unknown"). */
+  json<T = unknown>(overrideType?: string): ColumnDef<T>;
 }
 
 const columnBuilder: ColumnBuilder = {
@@ -83,7 +85,7 @@ const columnBuilder: ColumnBuilder = {
   integer: () => createColumnDef('INTEGER'),
   real: () => createColumnDef('REAL'),
   blob: () => createColumnDef('BLOB'),
-  json: <T = unknown>() => createColumnDef<T>('TEXT', true),
+  json: <T = unknown>(overrideType?: string) => createColumnDef<T>('TEXT', true, overrideType),
 };
 
 // ----------------------------------------------------------------------------
@@ -197,7 +199,7 @@ export function defineTable<T extends Record<string, ColumnDef<any>>, O extends 
     columnDefs.push(sql);
 
     if (colDef._def.isJson) {
-      jsonColumnRegistry.set(`${name}.${colName}`, 'unknown');
+      jsonColumnRegistry.set(`${name}.${colName}`, colDef._def.jsonOverrideType ?? 'unknown');
     }
   }
 
@@ -332,7 +334,7 @@ export function addColumn<T, K extends string>(
     sql += ` DEFAULT ${typeof v === 'string' ? `'${v}'` : v}`;
   }
   if (colDef._def.isJson) {
-    jsonColumnRegistry.set(`${table._name}.${column}`, 'unknown');
+    jsonColumnRegistry.set(`${table._name}.${column}`, colDef._def.jsonOverrideType ?? 'unknown');
   }
   return sql + ';';
 }

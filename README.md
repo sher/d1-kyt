@@ -17,7 +17,7 @@ const User = defineTable('User', (col) => ({
   externalId: col.text().notNull(),
   email: col.text().notNull(),
   name: col.text(),
-  preferences: col.json<{ theme: string; notifications: boolean }>(),  // stored as TEXT; type-safe at compile time
+  preferences: col.json<{ theme: string; notifications: boolean }>('{ theme: string; notifications: boolean }'),
 }));
 
 export const migration = () => [
@@ -27,19 +27,22 @@ export const migration = () => [
 ];
 ```
 
-Column types: `col.text()`, `col.integer()`, `col.real()`, `col.blob()`, `col.json<T>()`.
-`col.json<T>()` stores JSON as SQLite TEXT. The generic type parameter annotates the column's shape at compile time — use `TableType<typeof Table>` to derive a fully-typed row type from the DSL. It also writes an `"unknown"` override into `d1-kyt/kysely-codegen.json` so kysely-codegen generates `unknown` instead of `string`. You can refine `"unknown"` to a specific type in that file — subsequent builds won't overwrite it.
+Column types: `col.text()`, `col.integer()`, `col.real()`, `col.blob()`, `col.json<T>(overrideType?)`.
+`col.json<T>()` stores JSON as SQLite TEXT. The generic type parameter annotates the column's shape at compile time — use `TableType<typeof Table>` to derive a fully-typed row type from the DSL. Pass a TypeScript type string as the optional second argument to write that type into the kysely-codegen override registry; without it, `"unknown"` is written.
 
 ```typescript
 import { defineTable, type TableType } from 'd1-kyt/migrate';
 
 const User = defineTable('User', (col) => ({
-  preferences: col.json<{ theme: string; notifications: boolean }>(),
+  preferences: col.json<{ theme: string; notifications: boolean }>('{ theme: string; notifications: boolean }'),
 }));
 
 type UserRow = TableType<typeof User>;
 // { preferences: { theme: string; notifications: boolean }; id: unknown; createdAt: unknown; updatedAt: unknown }
+// → generated.ts emits: preferences: { theme: string; notifications: boolean }
 ```
+
+The type string passed to `col.json()` is written into `d1-kyt/kysely-codegen.json` so kysely-codegen emits the real shape in `generated.ts` instead of `unknown`. `generated.ts` remains the single source of truth — auto columns (`id`, `createdAt`, `updatedAt`) are typed there, not in `TableType`.
 
 ## Query Builder
 

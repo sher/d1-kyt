@@ -386,4 +386,30 @@ describe('getJsonColumnOverrides', () => {
     expect('Category.name' in overrides).toBe(false);
     expect('Category.count' in overrides).toBe(false);
   });
+
+  it('col.json(overrideType) writes the provided string to the registry', () => {
+    defineTable('Override', (col) => ({
+      prefs: col.json<{ theme: string }>('{ theme: string }'),
+    }), { primaryKey: false, createdAt: false, updatedAt: false });
+
+    const overrides = getJsonColumnOverrides();
+    expect(overrides['Override.prefs']).toBe('{ theme: string }');
+  });
+
+  it('col.json() without argument still writes "unknown" (backward compat)', () => {
+    defineTable('NoOverride', (col) => ({
+      data: col.json(),
+    }), { primaryKey: false, createdAt: false, updatedAt: false });
+
+    const overrides = getJsonColumnOverrides();
+    expect(overrides['NoOverride.data']).toBe('unknown');
+  });
+
+  it('col.json(overrideType) works through addColumn', () => {
+    const Tbl = useTable<{ id: number }>('Tbl');
+    addColumn(Tbl, 'config', (col) => col.json<{ key: string }>('{ key: string }'));
+
+    const overrides = getJsonColumnOverrides();
+    expect(overrides['Tbl.config']).toBe('{ key: string }');
+  });
 });
