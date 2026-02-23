@@ -13,6 +13,21 @@ interface ColumnDefInternal {
   type: SqliteType;
   isNotNull: boolean;
   defaultValue: string | number | null;
+  isJson: boolean;
+}
+
+// ----------------------------------------------------------------------------
+// JSON Column Registry
+// ----------------------------------------------------------------------------
+
+const jsonColumnRegistry = new Map<string, string>();
+
+/**
+ * Returns a record of "Table.column" → "unknown" for all json() columns
+ * defined via defineTable or addColumn since module load.
+ */
+export function getJsonColumnOverrides(): Record<string, string> {
+  return Object.fromEntries(jsonColumnRegistry);
 }
 
 /**
@@ -27,11 +42,12 @@ export interface ColumnDef<T = any> {
   _def: ColumnDefInternal;
 }
 
-function createColumnDef<T>(type: SqliteType): ColumnDef<T> {
+function createColumnDef<T>(type: SqliteType, isJson = false): ColumnDef<T> {
   const def: ColumnDefInternal = {
     type,
     isNotNull: false,
     defaultValue: null,
+    isJson,
   };
 
   const columnDef: ColumnDef<T> = {
@@ -58,6 +74,8 @@ export interface ColumnBuilder {
   integer(): ColumnDef<number>;
   real(): ColumnDef<number>;
   blob(): ColumnDef<string>;
+  /** JSON stored as TEXT. Emits TEXT in SQL; adds "unknown" override to kysely-codegen config. */
+  json(): ColumnDef<unknown>;
 }
 
 const columnBuilder: ColumnBuilder = {
@@ -65,6 +83,7 @@ const columnBuilder: ColumnBuilder = {
   integer: () => createColumnDef('INTEGER'),
   real: () => createColumnDef('REAL'),
   blob: () => createColumnDef('BLOB'),
+  json: () => createColumnDef<unknown>('TEXT', true),
 };
 
 // ----------------------------------------------------------------------------
@@ -168,6 +187,10 @@ export function defineTable<T extends Record<string, ColumnDef<any>>, O extends 
       sql += ` DEFAULT ${typeof v === 'string' ? `'${v}'` : v}`;
     }
     columnDefs.push(sql);
+
+    if (colDef._def.isJson) {
+      jsonColumnRegistry.set(`${name}.${colName}`, 'unknown');
+    }
   }
 
   // Auto timestamp columns
@@ -299,6 +322,9 @@ export function addColumn<T, K extends string>(
   if (colDef._def.defaultValue !== null) {
     const v = colDef._def.defaultValue;
     sql += ` DEFAULT ${typeof v === 'string' ? `'${v}'` : v}`;
+  }
+  if (colDef._def.isJson) {
+    jsonColumnRegistry.set(`${table._name}.${column}`, 'unknown');
   }
   return sql + ';';
 }

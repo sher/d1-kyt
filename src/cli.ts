@@ -34,6 +34,7 @@ Examples:
 
 import type { D1KytConfig } from './config.js';
 import { generateMigrationPrefix } from './naming.js';
+import { getJsonColumnOverrides } from './migrate.js';
 
 // ----------------------------------------------------------------------------
 // Config Types
@@ -262,18 +263,17 @@ async function cmdMigrateBuild(): Promise<void> {
   for (const tsFile of tsFiles) {
     const sqlFile = tsFile.replace(/\.ts$/, '.sql');
     const sqlPath = join(outDir, sqlFile);
-
-    // Skip if .sql already exists
-    if (existsSync(sqlPath)) {
-      continue;
-    }
+    const isNew = !existsSync(sqlPath);
 
     const tsPath = join(srcDir, tsFile);
 
     try {
-      // Dynamic import the migration file
+      // Always import to populate the json column registry
       const module = await import(tsPath);
       const statements: string[] = module.migration();
+
+      // Skip SQL writing if already built
+      if (!isNew) continue;
 
       if (statements.length === 0) {
         console.log(`Skipped: ${tsFile} (empty migration)`);
@@ -287,6 +287,22 @@ async function cmdMigrateBuild(): Promise<void> {
     } catch (err) {
       console.error(`Error building ${tsFile}:`, err);
       process.exit(1);
+    }
+  }
+
+  // Merge json column overrides into kysely-codegen.json (non-destructive)
+  const overrides = getJsonColumnOverrides();
+  if (Object.keys(overrides).length > 0) {
+    const kyselyConfigPath = getKyselyConfigPath();
+    if (existsSync(kyselyConfigPath)) {
+      const kyselyConfig = JSON.parse(readFileSync(kyselyConfigPath, 'utf-8'));
+      const existing = kyselyConfig.overrides?.columns ?? {};
+      const merged = { ...existing };
+      for (const [key, val] of Object.entries(overrides)) {
+        if (!(key in merged)) merged[key] = val;
+      }
+      kyselyConfig.overrides = { ...kyselyConfig.overrides, columns: merged };
+      writeFileSync(kyselyConfigPath, JSON.stringify(kyselyConfig, null, 2) + '\n');
     }
   }
 

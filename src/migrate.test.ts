@@ -7,6 +7,7 @@ import {
   dropIndex,
   addColumn,
   dropTable,
+  getJsonColumnOverrides,
 } from './migrate.js';
 
 describe('defineTable', () => {
@@ -136,6 +137,14 @@ describe('defineTable', () => {
     }), { primaryKey: false });
 
     expect(Place.sql[1]).toContain('WHERE "uuid" = NEW."uuid"');
+  });
+
+  it('json() column generates TEXT in SQL', () => {
+    const Post = defineTable('Post', (col) => ({
+      metadata: col.json(),
+    }), { primaryKey: false, createdAt: false, updatedAt: false });
+
+    expect(Post.sql[0]).toContain('"metadata" TEXT');
   });
 });
 
@@ -269,6 +278,15 @@ describe('addColumn', () => {
     expect(sql).toBe('ALTER TABLE "Place" ADD COLUMN "featured" INTEGER NOT NULL DEFAULT 0;');
   });
 
+  it('adds json column as TEXT', () => {
+    const Place = defineTable('Place', (col) => ({
+      name: col.text().notNull(),
+    }));
+
+    const sql = addColumn(Place, 'metadata', (col) => col.json());
+    expect(sql).toBe('ALTER TABLE "Place" ADD COLUMN "metadata" TEXT;');
+  });
+
   it('works with useTable', () => {
     interface PlaceTable {
       id: number;
@@ -315,5 +333,36 @@ describe('dropTable', () => {
     const result = dropTable(Place);
 
     expect(result[0]).toBe('DROP TABLE "Place";');
+  });
+});
+
+describe('getJsonColumnOverrides', () => {
+  it('returns Table.col entries for json columns after defineTable', () => {
+    defineTable('Product', (col) => ({
+      metadata: col.json(),
+      name: col.text(),
+    }));
+
+    const overrides = getJsonColumnOverrides();
+    expect(overrides['Product.metadata']).toBe('unknown');
+  });
+
+  it('returns Table.col entries for json columns after addColumn', () => {
+    const Venue = useTable<{ id: number }>('Venue');
+    addColumn(Venue, 'settings', (col) => col.json());
+
+    const overrides = getJsonColumnOverrides();
+    expect(overrides['Venue.settings']).toBe('unknown');
+  });
+
+  it('does not include non-json columns', () => {
+    defineTable('Category', (col) => ({
+      name: col.text(),
+      count: col.integer(),
+    }));
+
+    const overrides = getJsonColumnOverrides();
+    expect('Category.name' in overrides).toBe(false);
+    expect('Category.count' in overrides).toBe(false);
   });
 });

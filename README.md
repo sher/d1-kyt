@@ -17,6 +17,7 @@ const User = defineTable('User', (col) => ({
   externalId: col.text().notNull(),
   email: col.text().notNull(),
   name: col.text(),
+  preferences: col.json(),  // stored as TEXT; gets "unknown" override in kysely-codegen.json
 }));
 
 export const migration = () => [
@@ -25,6 +26,9 @@ export const migration = () => [
   createIndex(User, ['email'], { unique: true }),
 ];
 ```
+
+Column types: `col.text()`, `col.integer()`, `col.real()`, `col.blob()`, `col.json()`.
+`col.json()` stores JSON as SQLite TEXT and automatically writes an `"unknown"` override into `d1-kyt/kysely-codegen.json` so kysely-codegen generates `unknown` instead of `string`. You can refine `"unknown"` to a specific type in that file — subsequent builds won't overwrite it.
 
 ## Query Builder
 
