@@ -17,7 +17,7 @@ const User = defineTable('User', (col) => ({
   externalId: col.text().notNull(),
   email: col.text().notNull(),
   name: col.text(),
-  preferences: col.json(),  // stored as TEXT; gets "unknown" override in kysely-codegen.json
+  preferences: col.json<{ theme: string; notifications: boolean }>(),  // stored as TEXT; type-safe at compile time
 }));
 
 export const migration = () => [
@@ -27,8 +27,19 @@ export const migration = () => [
 ];
 ```
 
-Column types: `col.text()`, `col.integer()`, `col.real()`, `col.blob()`, `col.json()`.
-`col.json()` stores JSON as SQLite TEXT and automatically writes an `"unknown"` override into `d1-kyt/kysely-codegen.json` so kysely-codegen generates `unknown` instead of `string`. You can refine `"unknown"` to a specific type in that file — subsequent builds won't overwrite it.
+Column types: `col.text()`, `col.integer()`, `col.real()`, `col.blob()`, `col.json<T>()`.
+`col.json<T>()` stores JSON as SQLite TEXT. The generic type parameter annotates the column's shape at compile time — use `TableType<typeof Table>` to derive a fully-typed row type from the DSL. It also writes an `"unknown"` override into `d1-kyt/kysely-codegen.json` so kysely-codegen generates `unknown` instead of `string`. You can refine `"unknown"` to a specific type in that file — subsequent builds won't overwrite it.
+
+```typescript
+import { defineTable, type TableType } from 'd1-kyt/migrate';
+
+const User = defineTable('User', (col) => ({
+  preferences: col.json<{ theme: string; notifications: boolean }>(),
+}));
+
+type UserRow = TableType<typeof User>;
+// { preferences: { theme: string; notifications: boolean }; id: unknown; createdAt: unknown; updatedAt: unknown }
+```
 
 ## Query Builder
 

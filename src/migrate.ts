@@ -75,7 +75,7 @@ export interface ColumnBuilder {
   real(): ColumnDef<number>;
   blob(): ColumnDef<string>;
   /** JSON stored as TEXT. Emits TEXT in SQL; adds "unknown" override to kysely-codegen config. */
-  json(): ColumnDef<unknown>;
+  json<T = unknown>(): ColumnDef<T>;
 }
 
 const columnBuilder: ColumnBuilder = {
@@ -83,7 +83,7 @@ const columnBuilder: ColumnBuilder = {
   integer: () => createColumnDef('INTEGER'),
   real: () => createColumnDef('REAL'),
   blob: () => createColumnDef('BLOB'),
-  json: () => createColumnDef<unknown>('TEXT', true),
+  json: <T = unknown>() => createColumnDef<T>('TEXT', true),
 };
 
 // ----------------------------------------------------------------------------
@@ -140,6 +140,14 @@ export interface DefinedTable<T> extends Table<T> {
   readonly sql: string[];
 }
 
+/**
+ * Extract the row type from a DefinedTable.
+ * @example
+ * const User = defineTable('User', (col) => ({ prefs: col.json<{ theme: string }>() }));
+ * type UserRow = TableType<typeof User>;
+ */
+export type TableType<T extends Table<any>> = NonNullable<T['_phantom']>;
+
 // ----------------------------------------------------------------------------
 // Table Definition
 // ----------------------------------------------------------------------------
@@ -165,7 +173,7 @@ export function defineTable<T extends Record<string, ColumnDef<any>>, O extends 
   name: string,
   fn: TableDefFn<T>,
   options?: O
-): DefinedTable<{ [K in keyof T]: unknown } & AutoColumns<O>> {
+): DefinedTable<{ [K in keyof T]: T[K] extends ColumnDef<infer U> ? U : never } & AutoColumns<O>> {
   const opts = { ...defaultTableOptions, ...options };
   const columns = fn(columnBuilder);
   const columnDefs: string[] = [];
@@ -222,7 +230,7 @@ END;`;
   return {
     _name: name,
     sql: sqlStatements,
-  } as DefinedTable<{ [K in keyof T]: unknown } & AutoColumns<O>>;
+  } as DefinedTable<{ [K in keyof T]: T[K] extends ColumnDef<infer U> ? U : never } & AutoColumns<O>>;
 }
 
 /**

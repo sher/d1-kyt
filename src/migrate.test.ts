@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, expectTypeOf } from 'vitest';
 import {
   defineTable,
   useTable,
@@ -8,6 +8,7 @@ import {
   addColumn,
   dropTable,
   getJsonColumnOverrides,
+  type TableType,
 } from './migrate.js';
 
 describe('defineTable', () => {
@@ -145,6 +146,26 @@ describe('defineTable', () => {
     }), { primaryKey: false, createdAt: false, updatedAt: false });
 
     expect(Post.sql[0]).toContain('"metadata" TEXT');
+  });
+
+  it('json<T>() propagates type through defineTable', () => {
+    const Post = defineTable('Post', (col) => ({
+      metadata: col.json<{ id: number; title: string }>(),
+    }), { primaryKey: false, createdAt: false, updatedAt: false });
+
+    type PostType = TableType<typeof Post>;
+    expectTypeOf<PostType['metadata']>().toEqualTypeOf<{ id: number; title: string }>();
+  });
+
+  it('text() and integer() propagate correct types', () => {
+    const T = defineTable('T', (col) => ({
+      name: col.text(),
+      count: col.integer(),
+    }), { primaryKey: false, createdAt: false, updatedAt: false });
+
+    type TType = TableType<typeof T>;
+    expectTypeOf<TType['name']>().toEqualTypeOf<string>();
+    expectTypeOf<TType['count']>().toEqualTypeOf<number>();
   });
 });
 
