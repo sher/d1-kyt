@@ -269,6 +269,46 @@ describe('createIndex', () => {
     const sql = createIndex(Place, ['cityId']);
     expect(sql).toBe('CREATE INDEX "Place_cityId_idx" ON "Place"("cityId");');
   });
+
+  it('creates partial index with where string', () => {
+    const Place = defineTable('Place', (col) => ({
+      name: col.text().notNull(),
+      deletedAt: col.text(),
+    }));
+
+    const sql = createIndex(Place, ['name'], { where: '"deletedAt" IS NULL' });
+    expect(sql).toBe('CREATE INDEX "Place_name_idx" ON "Place"("name") WHERE "deletedAt" IS NULL;');
+  });
+
+  it('creates partial index with typed where function', () => {
+    const Place = defineTable('Place', (col) => ({
+      name: col.text().notNull(),
+      deletedAt: col.text(),
+    }));
+
+    const sql = createIndex(Place, ['name'], { where: col => `${col('deletedAt')} IS NULL` });
+    expect(sql).toBe('CREATE INDEX "Place_name_idx" ON "Place"("name") WHERE "deletedAt" IS NULL;');
+  });
+
+  it('typed where function rejects unknown column names', () => {
+    // type-level only — verified by tsc, no runtime assertion needed
+    const Place = defineTable('WhereTbl', (col) => ({
+      age: col.integer(),
+    }));
+
+    // @ts-expect-error 'bogus' is not a key of WhereTbl
+    createIndex(Place, ['age'], { where: col => `${col('bogus')} > 0` });
+  });
+
+  it('combines unique and where', () => {
+    const Place = defineTable('Place', (col) => ({
+      email: col.text().notNull(),
+      active: col.integer(),
+    }));
+
+    const sql = createIndex(Place, ['email'], { unique: true, where: col => `${col('active')} = 1` });
+    expect(sql).toBe('CREATE UNIQUE INDEX "Place_email_uq" ON "Place"("email") WHERE "active" = 1;');
+  });
 });
 
 describe('dropIndex', () => {

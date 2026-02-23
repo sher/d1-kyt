@@ -124,6 +124,8 @@ const User = useTable('User');
 export const migration = () => [
   addColumn(User, 'age', (col) => col.integer()),
   createIndex(User, ['age']),
+  // partial index — where accepts a typed column accessor or a raw SQL string
+  createIndex(User, ['age'], { where: col => `${col('age')} IS NOT NULL` }),
 ];
 ```
 

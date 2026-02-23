@@ -279,20 +279,31 @@ export function createUseTable<DB>() {
 // Index Operations
 // ----------------------------------------------------------------------------
 
-interface IndexOptions {
+interface IndexOptions<T = any> {
   unique?: boolean;
   name?: string;
+  /**
+   * WHERE clause for a partial index.
+   * Pass a raw SQL string, or a function that receives a typed column quoter
+   * so column names are checked against the table type.
+   *
+   * @example
+   * { where: col => `${col('deletedAt')} IS NULL` }
+   * { where: '"age" > 0' }
+   */
+  where?: string | ((col: (name: keyof T & string) => string) => string);
 }
 
 /**
  * Create an index on a table.
  * Use { unique: true } for unique constraint.
  * Use { name: 'custom_name' } to override auto-generated name.
+ * Use { where } for a partial index (typed column accessor or raw SQL string).
  */
 export function createIndex<T>(
   table: Table<T>,
   columns: (keyof T & string)[],
-  options?: IndexOptions
+  options?: IndexOptions<T>
 ): string {
   const tableName = table._name;
   const unique = options?.unique ?? false;
@@ -301,7 +312,13 @@ export function createIndex<T>(
   const columnList = columns.map((c) => `"${c}"`).join(', ');
   const uniqueKeyword = unique ? 'UNIQUE ' : '';
 
-  return `CREATE ${uniqueKeyword}INDEX "${indexName}" ON "${tableName}"(${columnList});`;
+  let whereClause = '';
+  if (options?.where) {
+    const col = (name: keyof T & string) => `"${name}"`;
+    whereClause = ` WHERE ${typeof options.where === 'function' ? options.where(col) : options.where}`;
+  }
+
+  return `CREATE ${uniqueKeyword}INDEX "${indexName}" ON "${tableName}"(${columnList})${whereClause};`;
 }
 
 /**
