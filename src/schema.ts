@@ -27,6 +27,14 @@ export interface SchemaIndex {
   readonly where?: string;
 }
 
+export interface SchemaForeignKey {
+  readonly columns: string[];
+  readonly references: SchemaTable<any, any>;
+  readonly refColumns?: string[];
+  readonly onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  readonly onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+}
+
 export interface SchemaTrigger {
   readonly name: string;
   readonly timing: 'BEFORE' | 'AFTER';
@@ -87,6 +95,7 @@ export interface SchemaTable<
   readonly _options: O;
   readonly _indexes: SchemaIndex[];
   readonly _triggers: SchemaTrigger[];
+  readonly _foreignKeys: SchemaForeignKey[];
   /** @internal runtime marker for schema detection */
   readonly _schemaTable: true;
   /** Phantom type: resolved row type for SELECT queries */
@@ -195,13 +204,18 @@ export function sqlTypeFromSchema(schema: v.BaseSchema<any, any, any>): ColumnTy
 export function defineTable<
   Cols extends Record<string, v.BaseSchema<any, any, any>>,
   O extends TableOptions = object,
->(name: string, columns: Cols, options?: O): SchemaTable<Cols, O> {
+>(
+  name: string,
+  columns: Cols,
+  options?: O & { foreignKeys?: SchemaForeignKey[] },
+): SchemaTable<Cols, O> {
   return {
     _name: name,
     _columns: columns,
     _options: (options ?? {}) as O,
     _indexes: [],
     _triggers: [],
+    _foreignKeys: [...(options?.foreignKeys ?? [])],
     _schemaTable: true,
   } as unknown as SchemaTable<Cols, O>;
 }

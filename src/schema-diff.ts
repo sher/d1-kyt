@@ -3,7 +3,7 @@
  * the declarative schema workflow (schema:diff command).
  */
 
-import type { SchemaTable, ColumnTypeInfo, TableOptions } from './schema.js';
+import type { SchemaTable, ColumnTypeInfo, TableOptions, SchemaForeignKey } from './schema.js';
 import { sqlTypeFromSchema } from './schema.js';
 
 // ----------------------------------------------------------------------------
@@ -36,11 +36,20 @@ export interface TriggerSnapshot {
   body: string;
 }
 
+export interface ForeignKeySnapshot {
+  columns: string[];
+  refTable: string;
+  refColumns: string[];
+  onDelete?: string;
+  onUpdate?: string;
+}
+
 export interface TableSnapshot {
   name: string;
   columns: Record<string, ColumnSnapshot>;
   indexes: Record<string, IndexSnapshot>;
   triggers: Record<string, TriggerSnapshot>;
+  foreignKeys: Record<string, ForeignKeySnapshot>;
 }
 
 export interface SchemaSnapshot {
@@ -70,11 +79,18 @@ export interface TriggerChange {
   after?: TriggerSnapshot;
 }
 
+export interface ForeignKeyChange {
+  key: string;
+  before?: ForeignKeySnapshot;
+  after?: ForeignKeySnapshot;
+}
+
 export interface TableChange {
   name: string;
   columns: ColumnChange[];
   indexes: IndexChange[];
   triggers: TriggerChange[];
+  foreignKeys: ForeignKeyChange[];
 }
 
 export interface SchemaDiff {
@@ -183,6 +199,24 @@ export function serializeSchema(exports: Record<string, unknown>): SchemaSnapsho
       indexes[idx.name] = snap;
     }
 
+    // Foreign keys
+    const foreignKeys: Record<string, ForeignKeySnapshot> = {};
+    for (const fk of (table._foreignKeys ?? []) as SchemaForeignKey[]) {
+      const refOpts = { ...defaultOpts, ...((fk.references._options ?? {}) as TableOptions) };
+      const refPk = refOpts.primaryKey !== false ? refOpts.primaryKeyColumn : undefined;
+      const refColumns = fk.refColumns ?? (refPk ? [refPk] : []);
+      if (refColumns.length === 0) continue;
+      const key = fk.columns.join(',');
+      const snap: ForeignKeySnapshot = {
+        columns: fk.columns,
+        refTable: fk.references._name,
+        refColumns,
+      };
+      if (fk.onDelete) snap.onDelete = fk.onDelete;
+      if (fk.onUpdate) snap.onUpdate = fk.onUpdate;
+      foreignKeys[key] = snap;
+    }
+
     // Triggers: auto updatedAt trigger
     const triggers: Record<string, TriggerSnapshot> = {};
     if (opts.updatedAt) {
@@ -216,6 +250,7 @@ export function serializeSchema(exports: Record<string, unknown>): SchemaSnapsho
       columns,
       indexes,
       triggers,
+      foreignKeys,
     };
   }
 
@@ -262,6 +297,7 @@ export function diffSnapshots(prev: SchemaSnapshot, next: SchemaSnapshot): Schem
     const columns: ColumnChange[] = [];
     const indexes: IndexChange[] = [];
     const triggers: TriggerChange[] = [];
+    const foreignKeys: ForeignKeyChange[] = [];
 
     // Columns: added or modified
     for (const col of Object.values(nextTable.columns)) {
@@ -320,8 +356,29 @@ export function diffSnapshots(prev: SchemaSnapshot, next: SchemaSnapshot): Schem
       }
     }
 
-    if (columns.length > 0 || indexes.length > 0 || triggers.length > 0) {
-      changedTables.push({ name, columns, indexes, triggers });
+    // Foreign keys: added or modified
+    const prevFks = prevTable.foreignKeys ?? {};
+    const nextFks = nextTable.foreignKeys ?? {};
+    for (const [key, fk] of Object.entries(nextFks)) {
+      if (!(key in prevFks)) {
+        foreignKeys.push({ key, after: fk });
+      } else {
+        const prevFk = prevFks[key];
+        if (JSON.stringify(prevFk) !== JSON.stringify(fk)) {
+          foreignKeys.push({ key, before: prevFk, after: fk });
+        }
+      }
+    }
+
+    // Foreign keys: dropped
+    for (const [key, fk] of Object.entries(prevFks)) {
+      if (!(key in nextFks)) {
+        foreignKeys.push({ key, before: fk });
+      }
+    }
+
+    if (columns.length > 0 || indexes.length > 0 || triggers.length > 0 || foreignKeys.length > 0) {
+      changedTables.push({ name, columns, indexes, triggers, foreignKeys });
     }
   }
 
@@ -368,12 +425,24 @@ function triggerToSQL(trg: TriggerSnapshot): string {
   );
 }
 
+/** Render a FOREIGN KEY table constraint. */
+function foreignKeyConstraintSQL(fk: ForeignKeySnapshot): string {
+  const cols = fk.columns.map((c) => `"${c}"`).join(', ');
+  const refCols = fk.refColumns.map((c) => `"${c}"`).join(', ');
+  let def = `  FOREIGN KEY (${cols}) REFERENCES "${fk.refTable}"(${refCols})`;
+  if (fk.onDelete) def += ` ON DELETE ${fk.onDelete}`;
+  if (fk.onUpdate) def += ` ON UPDATE ${fk.onUpdate}`;
+  return def;
+}
+
 /** Render full CREATE TABLE + indexes + triggers for a new table. */
 function tableToCreateSQL(table: TableSnapshot): string[] {
   const statements: string[] = [];
 
   const colDefs = Object.values(table.columns).map(columnToSQL);
-  statements.push(`CREATE TABLE "${table.name}" (\n${colDefs.join(',\n')}\n);`);
+  const fkDefs = Object.values(table.foreignKeys ?? {}).map(foreignKeyConstraintSQL);
+  const allDefs = [...colDefs, ...fkDefs];
+  statements.push(`CREATE TABLE "${table.name}" (\n${allDefs.join(',\n')}\n);`);
 
   for (const idx of Object.values(table.indexes)) {
     statements.push(indexToSQL(table.name, idx));
@@ -399,9 +468,11 @@ function tableToCreateSQL(table: TableSnapshot): string[] {
  */
 export function diffToSQL(diff: SchemaDiff): string[] {
   const statements: string[] = [];
+  let hasForeignKeys = false;
 
   // New tables
   for (const table of diff.addedTables) {
+    if (Object.keys(table.foreignKeys ?? {}).length > 0) hasForeignKeys = true;
     statements.push(...tableToCreateSQL(table));
   }
 
@@ -413,13 +484,37 @@ export function diffToSQL(diff: SchemaDiff): string[] {
 
   // Changed tables
   for (const change of diff.changedTables) {
+    const handledFkKeys = new Set<string>();
+
     // Columns
     for (const col of change.columns) {
       if (!col.before && col.after) {
-        // Added column
+        // Added column — check for a new single-column inline FK
         let sql = `ALTER TABLE "${change.name}" ADD COLUMN "${col.after.name}" ${col.after.type}`;
         if (col.after.notNull) sql += ' NOT NULL';
         if (col.after.default !== undefined) sql += ` DEFAULT ${col.after.default}`;
+
+        const inlineFk = change.foreignKeys.find(
+          (fkc) =>
+            !fkc.before &&
+            fkc.after?.columns.length === 1 &&
+            fkc.after.columns[0] === col.after!.name,
+        );
+        if (inlineFk?.after) {
+          if (col.after.notNull) {
+            statements.push(
+              `-- WARNING: cannot add NOT NULL column "${col.after.name}" with FK to existing table "${change.name}"; make it nullable or rebuild the table`,
+            );
+          } else {
+            const fk = inlineFk.after;
+            sql += ` REFERENCES "${fk.refTable}"("${fk.refColumns[0]}")`;
+            if (fk.onDelete) sql += ` ON DELETE ${fk.onDelete}`;
+            if (fk.onUpdate) sql += ` ON UPDATE ${fk.onUpdate}`;
+            handledFkKeys.add(inlineFk.key);
+            hasForeignKeys = true;
+          }
+        }
+
         statements.push(sql + ';');
       } else if (col.before && !col.after) {
         // Dropped column
@@ -437,10 +532,10 @@ export function diffToSQL(diff: SchemaDiff): string[] {
       if (!idx.before && idx.after) {
         statements.push(indexToSQL(change.name, idx.after));
       } else if (idx.before && !idx.after) {
-        statements.push(`DROP INDEX "${idx.name}";`);
+        statements.push(`DROP INDEX IF EXISTS "${idx.name}";`);
       } else if (idx.before && idx.after) {
         // Changed index: drop and recreate
-        statements.push(`DROP INDEX "${idx.name}";`);
+        statements.push(`DROP INDEX IF EXISTS "${idx.name}";`);
         statements.push(indexToSQL(change.name, idx.after));
       }
     }
@@ -457,6 +552,20 @@ export function diffToSQL(diff: SchemaDiff): string[] {
         statements.push(triggerToSQL(trg.after));
       }
     }
+
+    // Foreign keys not already handled inline
+    for (const fkc of change.foreignKeys) {
+      if (handledFkKeys.has(fkc.key)) continue;
+      const cols = (fkc.after ?? fkc.before)!.columns.join(', ');
+      const ref = (fkc.after ?? fkc.before)!;
+      statements.push(
+        `-- WARNING: cannot ${fkc.before && fkc.after ? 'modify' : fkc.before ? 'drop' : 'add'} FK (${cols}) → "${ref.refTable}" on existing table "${change.name}"; SQLite requires a table rebuild`,
+      );
+    }
+  }
+
+  if (hasForeignKeys) {
+    statements.unshift('PRAGMA foreign_keys = ON;');
   }
 
   return statements;

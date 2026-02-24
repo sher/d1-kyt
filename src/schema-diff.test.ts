@@ -588,4 +588,97 @@ describe('SQLite integration: CREATE TABLE from schema', () => {
     const colNames = cols.map((c) => c.name);
     expect(colNames).toEqual(['uuid', 'value']);
   });
+
+  it('foreign key: CREATE TABLE includes FK constraint and enforces it', () => {
+    const categories = defineTable('fk_categories', { name: v.string() });
+    const posts = defineTable(
+      'fk_posts',
+      { title: v.string(), categoryId: v.pipe(v.number(), v.integer()) },
+      { foreignKeys: [{ columns: ['categoryId'], references: categories }] },
+    );
+    const snap = serializeSchema({ categories, posts });
+    const sql = diffToSQL(diffSnapshots({ version: 1, tables: {} }, snap));
+
+    // PRAGMA should be prepended
+    expect(sql[0]).toBe('PRAGMA foreign_keys = ON;');
+
+    // FK constraint should appear in CREATE TABLE
+    const createPosts = sql.find((s) => s.includes('CREATE TABLE "fk_posts"'));
+    expect(createPosts).toContain('FOREIGN KEY ("categoryId") REFERENCES "fk_categories"("id")');
+
+    const { db, close } = applySQL(sql);
+    closeDb = close;
+
+    // Valid insert: category exists
+    db.exec(`INSERT INTO "fk_categories" ("name") VALUES ('tech')`);
+    db.exec(`INSERT INTO "fk_posts" ("title","categoryId") VALUES ('Hello', 1)`);
+
+    // Invalid insert: category 999 does not exist — should throw
+    expect(() => {
+      db.exec(`INSERT INTO "fk_posts" ("title","categoryId") VALUES ('Bad', 999)`);
+    }).toThrow();
+  });
+
+  it('foreign key: onDelete CASCADE', () => {
+    const authors = defineTable('fk_authors', { name: v.string() });
+    const articles = defineTable(
+      'fk_articles',
+      { title: v.string(), authorId: v.pipe(v.number(), v.integer()) },
+      { foreignKeys: [{ columns: ['authorId'], references: authors, onDelete: 'CASCADE' }] },
+    );
+    const snap = serializeSchema({ authors, articles });
+    const sql = diffToSQL(diffSnapshots({ version: 1, tables: {} }, snap));
+
+    const createArticles = sql.find((s) => s.includes('CREATE TABLE "fk_articles"'));
+    expect(createArticles).toContain('ON DELETE CASCADE');
+
+    const { db, close } = applySQL(sql);
+    closeDb = close;
+
+    db.exec(`INSERT INTO "fk_authors" ("name") VALUES ('Alice')`);
+    db.exec(`INSERT INTO "fk_articles" ("title","authorId") VALUES ('Post 1', 1)`);
+    db.exec(`DELETE FROM "fk_authors" WHERE "id" = 1`);
+
+    const rows = db.prepare(`SELECT * FROM "fk_articles"`).all();
+    expect(rows).toHaveLength(0); // cascaded delete
+  });
+
+  it('foreign key: ADD COLUMN with nullable FK inlines REFERENCES', () => {
+    const depts = defineTable('fk_depts', { name: v.string() });
+    const emps_v1 = defineTable('fk_emps', { name: v.string() });
+    const emps_v2 = defineTable(
+      'fk_emps',
+      {
+        name: v.string(),
+        deptId: v.optional(v.pipe(v.number(), v.integer())),
+      },
+      { foreignKeys: [{ columns: ['deptId'], references: depts }] },
+    );
+
+    const prev = serializeSchema({ depts, emps: emps_v1 });
+    const next = serializeSchema({ depts, emps: emps_v2 });
+    const sql = diffToSQL(diffSnapshots(prev, next));
+
+    // PRAGMA prepended, inline REFERENCES present
+    expect(sql[0]).toBe('PRAGMA foreign_keys = ON;');
+    expect(
+      sql.some((s) => s.includes('ADD COLUMN "deptId"') && s.includes('REFERENCES "fk_depts"("id")')),
+    ).toBe(true);
+  });
+
+  it('foreign key: NOT NULL FK add column emits warning', () => {
+    const org = defineTable('fk_org', { name: v.string() });
+    const emp_v1 = defineTable('fk_emp_nn', { name: v.string() });
+    const emp_v2 = defineTable(
+      'fk_emp_nn',
+      { name: v.string(), orgId: v.pipe(v.number(), v.integer()) },
+      { foreignKeys: [{ columns: ['orgId'], references: org }] },
+    );
+
+    const prev = serializeSchema({ org, emp: emp_v1 });
+    const next = serializeSchema({ org, emp: emp_v2 });
+    const sql = diffToSQL(diffSnapshots(prev, next));
+
+    expect(sql.some((s) => s.includes('-- WARNING') && s.includes('NOT NULL') && s.includes('orgId'))).toBe(true);
+  });
 });

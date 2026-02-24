@@ -222,6 +222,55 @@ app.post('/users', async (c) => {
 
 ---
 
+## Foreign keys
+
+Declare foreign keys in the table options. `PRAGMA foreign_keys = ON` is automatically prepended to any migration that includes FK constraints.
+
+```typescript
+export const categories = defineTable('categories', { name: v.string() });
+
+export const posts = defineTable('posts', {
+  title: v.string(),
+  categoryId: v.pipe(v.number(), v.integer()),
+}, {
+  foreignKeys: [
+    { columns: ['categoryId'], references: categories, onDelete: 'CASCADE' },
+  ],
+});
+```
+
+Generates in `CREATE TABLE`:
+```sql
+FOREIGN KEY ("categoryId") REFERENCES "categories"("id") ON DELETE CASCADE
+```
+
+### Adding a FK column to an existing table
+
+Use a nullable column — SQLite allows `ALTER TABLE ADD COLUMN ... REFERENCES` only when the column is nullable (existing rows get `NULL`):
+
+```typescript
+// v2: add optional deptId FK to existing employees table
+export const employees = defineTable('employees', {
+  name: v.string(),
+  deptId: v.optional(v.pipe(v.number(), v.integer())),  // nullable ✓
+}, {
+  foreignKeys: [{ columns: ['deptId'], references: departments }],
+});
+```
+
+Generates:
+```sql
+ALTER TABLE "employees" ADD COLUMN "deptId" INTEGER REFERENCES "departments"("id");
+```
+
+> Adding a `NOT NULL` FK column to an existing table is not possible without a table rebuild — a warning comment is emitted instead.
+
+### Supported `onDelete` / `onUpdate` actions
+
+`CASCADE` | `SET NULL` | `RESTRICT` | `NO ACTION`
+
+---
+
 ## Partial indexes
 
 ```typescript
