@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-const VERSION = '0.5.0';
+const VERSION = '0.5.2';
 
 const HELP = `
 d1-kyt v${VERSION} - Opinionated Cloudflare D1 + Kysely toolkit
@@ -18,13 +18,13 @@ Commands:
 
 Options:
   --dir <path>      Directory for config/schema/snapshot (default: auto-detected
-                    from wrangler migrations_dir parent, or "d1-kyt/")
+                    from wrangler migrations_dir parent, or "db/")
   --schema <path>   Override schema file path (default: <dir>/schema.ts)
   --help, -h        Show this help message
   --version, -v     Show version
 
 Examples:
-  d1-kyt init                        # auto-detect dir (db/ or d1-kyt/)
+  d1-kyt init                        # auto-detect dir (db/ by default)
   d1-kyt init --dir db               # use db/config.ts, db/schema.ts, db/schema.snapshot.jsonc
   d1-kyt schema:diff create_users
   d1-kyt schema:diff add_idx --schema src/schema.ts
@@ -93,11 +93,15 @@ function findExistingDir(dirFlag?: string): string | null {
     return existsSync(join(abs, CONFIG_FILE)) ? abs : null;
   }
 
-  // 1. Legacy d1-kyt/config.ts
+  // 1. db/config.ts (default)
+  const defaultDir = resolve(process.cwd(), 'db');
+  if (existsSync(join(defaultDir, CONFIG_FILE))) return defaultDir;
+
+  // 2. Legacy d1-kyt/config.ts
   const legacy = resolve(process.cwd(), 'd1-kyt');
   if (existsSync(join(legacy, CONFIG_FILE))) return legacy;
 
-  // 2. Parent of wrangler migrations dir (e.g. db/ for db/migrations/)
+  // 3. Parent of wrangler migrations dir (e.g. src/ for src/migrations/)
   const wrangler = readWranglerConfig();
   if (wrangler) {
     const parent = dirname(wrangler.migrationsDir);
@@ -119,7 +123,7 @@ function defaultInitDir(dirFlag?: string): string {
     const parent = dirname(wrangler.migrationsDir);
     if (parent !== '.') return resolve(process.cwd(), parent);
   }
-  return resolve(process.cwd(), 'd1-kyt');
+  return resolve(process.cwd(), 'db');
 }
 
 async function readD1KytConfig(dir: string): Promise<D1KytConfig | null> {
@@ -170,7 +174,7 @@ function cmdInit(dirFlag?: string): void {
   if (!existsSync(schemaPath)) {
     writeFileSync(
       schemaPath,
-      `import { defineTable, defineIndex } from 'd1-kyt/schema';\nimport * as v from 'valibot';\n\n// Define your tables here, then run: d1-kyt schema:diff <name>\n//\n// export const users = defineTable('users', {\n//   email: v.string(),                                   // TEXT NOT NULL\n//   name:  v.optional(v.string()),                       // TEXT (nullable)\n//   age:   v.optional(v.pipe(v.number(), v.integer())), // INTEGER (nullable)\n//   prefs: v.optional(v.object({ theme: v.string() })), // TEXT JSON (nullable)\n// });\n//\n// export const usersEmailIdx = defineIndex(users, ['email'], { unique: true });\n`,
+      `import { defineTable, defineIndex } from 'd1-kyt/schema';\nimport { createQueryBuilder } from 'd1-kyt';\nimport * as v from 'valibot';\n\n// Define your tables here, then run: d1-kyt schema:diff <name>\n//\n// export const users = defineTable('users', {\n//   email: v.string(),                                   // TEXT NOT NULL\n//   name:  v.optional(v.string()),                       // TEXT (nullable)\n//   age:   v.optional(v.pipe(v.number(), v.integer())), // INTEGER (nullable)\n//   prefs: v.optional(v.object({ theme: v.string() })), // TEXT JSON (nullable)\n// });\n//\n// export const usersEmailIdx = defineIndex(users, ['email'], { unique: true });\n\n// Add each table to DB, then use \`db\` for type-safe query building.\nexport type DB = {\n  // users: typeof users.$inferSelect;\n};\n\nexport const db = createQueryBuilder<DB>();\n`,
     );
     console.log(`Created: ${relDir}/${SCHEMA_FILE}`);
   } else {

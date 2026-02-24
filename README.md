@@ -40,15 +40,16 @@ d1-kyt schema:diff create_users
 wrangler d1 migrations apply <db-name> --local
 ```
 
-`init` auto-detects the right directory. If your wrangler config has `migrations_dir = "db/migrations"`, it places files in `db/`. Otherwise it uses `d1-kyt/`.
+`init` auto-detects the right directory. Defaults to `db/`. If your wrangler config has a `migrations_dir` with a parent folder (e.g. `src/migrations/`), it uses that parent instead.
 
 ---
 
 ## Schema
 
 ```typescript
-// db/schema.ts  (or d1-kyt/schema.ts)
+// db/schema.ts
 import { defineTable, defineIndex, defineTrigger } from 'd1-kyt/schema';
+import { createQueryBuilder } from 'd1-kyt';
 import * as v from 'valibot';
 
 export const users = defineTable('users', {
@@ -65,6 +66,15 @@ export const auditTrigger = defineTrigger('users_audit_trg', {
   timing: 'AFTER', event: 'INSERT', on: users,
   body: `INSERT INTO audit (action, at) VALUES ('insert', datetime('now'));`,
 });
+
+// Add each table here as you define it.
+export type DB = {
+  users: typeof users.$inferSelect;
+};
+
+// Compile-only Kysely query builder — stateless, no connection held.
+// Use with queryAll/queryFirst/queryRun to execute against D1.
+export const db = createQueryBuilder<DB>();
 ```
 
 ### Valibot → SQL type mapping
@@ -117,8 +127,9 @@ Creates (skips if already exists):
 
 Directory resolution:
 1. `--dir <path>` if provided
-2. Parent of wrangler `migrations_dir` (e.g. `db/` when `migrations_dir = "db/migrations"`)
-3. `d1-kyt/` as fallback
+2. `db/` if it contains a `config.ts` (default)
+3. `d1-kyt/` if it contains a `config.ts` (legacy)
+4. Parent of wrangler `migrations_dir` if not the project root
 
 ### `schema:diff <name>`
 
@@ -162,28 +173,15 @@ type NewUser = typeof users.$inferInsert;
 // { email: string; name?: string | undefined; age?: number | undefined; ... id?: number }
 ```
 
-### Building a DB type for Kysely
-
-```typescript
-// db/index.ts
-import { users } from './schema';
-
-export type DB = {
-  users: typeof users.$inferSelect;
-  // ... add other tables
-};
-```
-
 ---
 
 ## Query Builder
 
+`db` is a compile-only Kysely instance exported from your schema file. It holds no connection — it just builds typed SQL that you pass to `queryAll`/`queryFirst`/`queryRun` for execution.
+
 ```typescript
 // src/queries.ts
-import { createQueryBuilder } from 'd1-kyt';
-import type { DB } from './db';
-
-const db = createQueryBuilder<DB>();
+import { db } from './db/schema';
 
 export const listUsers = () =>
   db.selectFrom('users').selectAll().compile();
@@ -272,27 +270,6 @@ defineIndex(users, ['email'], {
 | Export | Description |
 |---|---|
 | `defineConfig(config)` | Define `config.ts` (typed helper) |
-
----
-
-## Legacy migrate API
-
-The imperative migration DSL (`d1-kyt/migrate`) is still available but superseded by the schema-first approach above. It will be removed in a future major version.
-
-```typescript
-// d1-kyt/migrations/0001_create_users.ts
-import { defineTable, createIndex } from 'd1-kyt/migrate';
-
-const users = defineTable('users', (col) => ({
-  email: col.text().notNull(),
-  name:  col.text(),
-}));
-
-export const migration = () => [
-  ...users.sql,
-  createIndex(users, ['email'], { unique: true }),
-];
-```
 
 ---
 
