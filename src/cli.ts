@@ -2,74 +2,45 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { execSync } from 'node:child_process';
 
-const VERSION = '0.4.3';
+const VERSION = '0.5.0';
 
 const HELP = `
 d1-kyt v${VERSION} - Opinionated Cloudflare D1 + Kysely toolkit
 
 Usage:
-  d1-kyt init
-  d1-kyt migrate:create <name>
-  d1-kyt migrate:build
-  d1-kyt typegen
+  d1-kyt init [--dir <dir>]
+  d1-kyt schema:diff <name> [--dir <dir>] [--schema <path>]
 
 Commands:
-  init              Initialize d1-kyt/ folder and config
-  migrate:create    Create a new migration .ts file
-  migrate:build     Compile .ts migrations to .sql
-  typegen           Generate TypeScript types (wraps kysely-codegen)
+  init              Scaffold config, schema template, and snapshot in <dir>
+  schema:diff       Diff schema against snapshot → generate .sql migration
 
 Options:
+  --dir <path>      Directory for config/schema/snapshot (default: auto-detected
+                    from wrangler migrations_dir parent, or "d1-kyt/")
+  --schema <path>   Override schema file path (default: <dir>/schema.ts)
   --help, -h        Show this help message
   --version, -v     Show version
 
 Examples:
-  d1-kyt init
-  d1-kyt migrate:create create_users
-  d1-kyt migrate:build
-  d1-kyt typegen
+  d1-kyt init                        # auto-detect dir (db/ or d1-kyt/)
+  d1-kyt init --dir db               # use db/config.ts, db/schema.ts, db/schema.snapshot.jsonc
+  d1-kyt schema:diff create_users
+  d1-kyt schema:diff add_idx --schema src/schema.ts
 `;
 
 import type { D1KytConfig } from './config.js';
 import { generateMigrationPrefix } from './naming.js';
-import { getJsonColumnOverrides } from './migrate.js';
+import { serializeSchema, diffSnapshots, diffToSQL } from './schema-diff.js';
+import type { SchemaSnapshot } from './schema-diff.js';
 
 // ----------------------------------------------------------------------------
-// Config Types
+// Wrangler config
 // ----------------------------------------------------------------------------
 
 interface WranglerD1Config {
   migrationsDir: string;
-}
-
-// ----------------------------------------------------------------------------
-// Config Helpers
-// ----------------------------------------------------------------------------
-
-const D1_KYT_DIR = 'd1-kyt';
-const CONFIG_FILE = 'config.ts';
-const KYSELY_CONFIG_FILE = 'kysely-codegen.json';
-
-function getConfigPath(): string {
-  return resolve(process.cwd(), D1_KYT_DIR, CONFIG_FILE);
-}
-
-function getKyselyConfigPath(): string {
-  return resolve(process.cwd(), D1_KYT_DIR, KYSELY_CONFIG_FILE);
-}
-
-async function readD1KytConfig(): Promise<D1KytConfig | null> {
-  const configPath = getConfigPath();
-  if (!existsSync(configPath)) return null;
-
-  try {
-    const module = await import(configPath);
-    return module.default ?? module.config;
-  } catch {
-    return null;
-  }
 }
 
 function readWranglerConfig(): WranglerD1Config | null {
@@ -82,34 +53,94 @@ function readWranglerConfig(): WranglerD1Config | null {
     if (filename.endsWith('.toml')) {
       const content = readFileSync(filepath, 'utf-8');
       const match = content.match(/migrations_dir\s*=\s*"([^"]+)"/);
-      if (match) {
-        return { migrationsDir: match[1] };
-      }
+      if (match) return { migrationsDir: match[1] };
     } else {
       const content = readFileSync(filepath, 'utf-8')
         .replace(/\/\/.*$/gm, '')
         .replace(/\/\*[\s\S]*?\*\//g, '');
-
       try {
-        const config = JSON.parse(content);
-        const d1 = config.d1_databases?.[0];
-        if (d1?.migrations_dir) {
-          return { migrationsDir: d1.migrations_dir };
-        }
+        const cfg = JSON.parse(content);
+        const d1 = cfg.d1_databases?.[0];
+        if (d1?.migrations_dir) return { migrationsDir: d1.migrations_dir };
       } catch {
-        // Invalid JSON
+        // ignore
       }
+    }
+  }
+  return null;
+}
+
+// ----------------------------------------------------------------------------
+// Dir resolution
+//
+// The "dir" is the single folder that holds config.ts, schema.ts, and
+// schema.snapshot.jsonc.  Resolution order:
+//   1. --dir <path> flag (explicit)
+//   2. Auto-detect an existing config: first d1-kyt/, then parent of
+//      wrangler migrationsDir (if it is not the project root)
+//   3. Derive a sensible default for init: parent of wrangler migrationsDir
+//      (if it has a real parent), otherwise "d1-kyt"
+// ----------------------------------------------------------------------------
+
+const CONFIG_FILE = 'config.ts';
+const SCHEMA_FILE = 'schema.ts';
+const SNAPSHOT_FILE = 'schema.snapshot.jsonc';
+
+/** Return the absolute path to <dir>/config.ts, or null if no config found. */
+function findExistingDir(dirFlag?: string): string | null {
+  if (dirFlag) {
+    const abs = resolve(process.cwd(), dirFlag);
+    return existsSync(join(abs, CONFIG_FILE)) ? abs : null;
+  }
+
+  // 1. Legacy d1-kyt/config.ts
+  const legacy = resolve(process.cwd(), 'd1-kyt');
+  if (existsSync(join(legacy, CONFIG_FILE))) return legacy;
+
+  // 2. Parent of wrangler migrations dir (e.g. db/ for db/migrations/)
+  const wrangler = readWranglerConfig();
+  if (wrangler) {
+    const parent = dirname(wrangler.migrationsDir);
+    if (parent !== '.') {
+      const abs = resolve(process.cwd(), parent);
+      if (existsSync(join(abs, CONFIG_FILE))) return abs;
     }
   }
 
   return null;
 }
 
+/** Pick the dir to use for init (before config exists). */
+function defaultInitDir(dirFlag?: string): string {
+  if (dirFlag) return resolve(process.cwd(), dirFlag);
+
+  const wrangler = readWranglerConfig();
+  if (wrangler) {
+    const parent = dirname(wrangler.migrationsDir);
+    if (parent !== '.') return resolve(process.cwd(), parent);
+  }
+  return resolve(process.cwd(), 'd1-kyt');
+}
+
+async function readD1KytConfig(dir: string): Promise<D1KytConfig | null> {
+  const configPath = join(dir, CONFIG_FILE);
+  if (!existsSync(configPath)) return null;
+  try {
+    const mod = await import(configPath);
+    return mod.default ?? mod.config;
+  } catch {
+    return null;
+  }
+}
+
 // ----------------------------------------------------------------------------
 // Commands
 // ----------------------------------------------------------------------------
 
-function cmdInit(): void {
+function cmdInit(dirFlag?: string): void {
+  const dir = defaultInitDir(dirFlag);
+  const relDir = dir.replace(process.cwd() + '/', '');
+
   const wrangler = readWranglerConfig();
   const migrationsDir = wrangler?.migrationsDir ?? 'db/migrations';
 
@@ -117,88 +148,119 @@ function cmdInit(): void {
     console.log(`Detected wrangler migrations_dir: ${migrationsDir}`);
   }
 
-  // Create d1-kyt directory
-  const d1KytDir = resolve(process.cwd(), D1_KYT_DIR);
-  if (!existsSync(d1KytDir)) {
-    mkdirSync(d1KytDir, { recursive: true });
-    console.log(`Created: ${D1_KYT_DIR}/`);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+    console.log(`Created: ${relDir}/`);
   }
 
-  // Create d1-kyt/migrations
-  const srcMigrationsDir = join(d1KytDir, 'migrations');
-  if (!existsSync(srcMigrationsDir)) {
-    mkdirSync(srcMigrationsDir, { recursive: true });
-    console.log(`Created: ${D1_KYT_DIR}/migrations/`);
-  }
-
-  // Create d1-kyt/config.ts
-  const configPath = getConfigPath();
+  // config.ts
+  const configPath = join(dir, CONFIG_FILE);
   if (!existsSync(configPath)) {
-    const configTemplate = `import { defineConfig } from 'd1-kyt/config';
-
-export default defineConfig({
-  migrationsDir: '${migrationsDir}',
-  namingStrategy: 'sequential',
-});
-`;
-    writeFileSync(configPath, configTemplate);
-    console.log(`Created: ${D1_KYT_DIR}/${CONFIG_FILE}`);
+    writeFileSync(
+      configPath,
+      `import { defineConfig } from 'd1-kyt/config';\n\nexport default defineConfig({\n  migrationsDir: '${migrationsDir}',\n  namingStrategy: 'sequential',\n});\n`,
+    );
+    console.log(`Created: ${relDir}/${CONFIG_FILE}`);
   } else {
-    console.log(`Skipped: ${D1_KYT_DIR}/${CONFIG_FILE} (already exists)`);
+    console.log(`Skipped: ${relDir}/${CONFIG_FILE} (already exists)`);
   }
 
-  // Create d1-kyt/kysely-codegen.json
-  const kyselyConfigPath = getKyselyConfigPath();
-  if (!existsSync(kyselyConfigPath)) {
-    const kyselyConfig = {
-      dialect: 'sqlite',
-      excludePattern: '(_cf_|d1_)*',
-      outFile: 'generated.ts',
-      camelCase: true,
-    };
-    writeFileSync(kyselyConfigPath, JSON.stringify(kyselyConfig, null, 2) + '\n');
-    console.log(`Created: ${D1_KYT_DIR}/${KYSELY_CONFIG_FILE}`);
+  // schema.ts
+  const schemaPath = join(dir, SCHEMA_FILE);
+  if (!existsSync(schemaPath)) {
+    writeFileSync(
+      schemaPath,
+      `import { defineTable, defineIndex } from 'd1-kyt/schema';\nimport * as v from 'valibot';\n\n// Define your tables here, then run: d1-kyt schema:diff <name>\n//\n// export const users = defineTable('users', {\n//   email: v.string(),                                   // TEXT NOT NULL\n//   name:  v.optional(v.string()),                       // TEXT (nullable)\n//   age:   v.optional(v.pipe(v.number(), v.integer())), // INTEGER (nullable)\n//   prefs: v.optional(v.object({ theme: v.string() })), // TEXT JSON (nullable)\n// });\n//\n// export const usersEmailIdx = defineIndex(users, ['email'], { unique: true });\n`,
+    );
+    console.log(`Created: ${relDir}/${SCHEMA_FILE}`);
   } else {
-    console.log(`Skipped: ${D1_KYT_DIR}/${KYSELY_CONFIG_FILE} (already exists)`);
+    console.log(`Skipped: ${relDir}/${SCHEMA_FILE} (already exists)`);
   }
 
-  // Create d1-kyt/index.ts with useTable helper
-  const indexPath = join(d1KytDir, 'index.ts');
-  if (!existsSync(indexPath)) {
-    const template = `import type { DB } from './generated';
-import { createUseTable } from 'd1-kyt/migrate';
-
-export const useTable = createUseTable<DB>();
-`;
-    writeFileSync(indexPath, template);
-    console.log(`Created: ${D1_KYT_DIR}/index.ts`);
+  // schema.snapshot.jsonc
+  const snapshotPath = join(dir, SNAPSHOT_FILE);
+  if (!existsSync(snapshotPath)) {
+    const empty: SchemaSnapshot = { version: 1, tables: {} };
+    writeFileSync(snapshotPath, JSON.stringify(empty, null, 2) + '\n');
+    console.log(`Created: ${relDir}/${SNAPSHOT_FILE}`);
   } else {
-    console.log(`Skipped: ${D1_KYT_DIR}/index.ts (already exists)`);
+    console.log(`Skipped: ${relDir}/${SNAPSHOT_FILE} (already exists)`);
   }
 
   console.log(`\nNext steps:`);
-  console.log(`  1. Create migration: d1-kyt migrate:create <name>`);
-  console.log(`  2. Build migrations: d1-kyt migrate:build`);
-  console.log(`  3. Apply migrations: wrangler d1 migrations apply <db> --local`);
-  console.log(`  4. Generate types: d1-kyt typegen`);
+  console.log(`  1. Edit:  ${relDir}/${SCHEMA_FILE}`);
+  console.log(`  2. Diff:  d1-kyt schema:diff <name>`);
+  console.log(`  3. Apply: wrangler d1 migrations apply <db> --local`);
 }
 
-async function cmdMigrateCreate(name: string): Promise<void> {
-  const config = await readD1KytConfig();
-  if (!config) {
+async function cmdSchemaDiff(
+  name: string,
+  dirFlag?: string,
+  schemaFlag?: string,
+): Promise<void> {
+  const dir = findExistingDir(dirFlag);
+  if (!dir) {
     console.error('Error: d1-kyt not initialized. Run "d1-kyt init" first.');
+    if (dirFlag) console.error(`       (looked in: ${dirFlag})`);
     process.exit(1);
   }
 
-  const srcDir = resolve(process.cwd(), D1_KYT_DIR, 'migrations');
+  const config = await readD1KytConfig(dir);
+  if (!config) {
+    console.error(`Error: Could not load config from ${join(dir, CONFIG_FILE)}`);
+    process.exit(1);
+  }
+
+  // Resolve schema file path
+  const schemaPath = schemaFlag
+    ? resolve(process.cwd(), schemaFlag)
+    : join(dir, SCHEMA_FILE);
+
+  if (!existsSync(schemaPath)) {
+    console.error(`Error: Schema file not found: ${schemaPath}`);
+    process.exit(1);
+  }
+
+  // Load schema module
+  let schemaExports: Record<string, unknown>;
+  try {
+    schemaExports = await import(schemaPath);
+  } catch (err) {
+    console.error(`Error loading schema from ${schemaPath}:`, err);
+    process.exit(1);
+  }
+
+  // Serialize → diff → SQL
+  const currentSnapshot = serializeSchema(schemaExports);
+
+  const snapshotPath = join(dir, SNAPSHOT_FILE);
+  let prevSnapshot: SchemaSnapshot = { version: 1, tables: {} };
+  if (existsSync(snapshotPath)) {
+    try {
+      // Strip JSONC-style comments before parsing
+      const raw = readFileSync(snapshotPath, 'utf-8')
+        .replace(/\/\/.*$/gm, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '');
+      prevSnapshot = JSON.parse(raw) as SchemaSnapshot;
+    } catch {
+      console.warn(`Warning: Could not parse ${SNAPSHOT_FILE}; treating as empty.`);
+    }
+  }
+
+  const diff = diffSnapshots(prevSnapshot, currentSnapshot);
+  const statements = diffToSQL(diff);
+
+  if (statements.length === 0) {
+    console.log('Schema is up to date.');
+    return;
+  }
+
+  // Write migration file
   const outDir = resolve(process.cwd(), config.migrationsDir);
+  if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+
+  const existingFiles = readdirSync(outDir);
   const strategy = config.namingStrategy ?? 'sequential';
-
-  // Collect existing files for sequential numbering
-  const existingSql = existsSync(outDir) ? readdirSync(outDir) : [];
-  const existingTs = existsSync(srcDir) ? readdirSync(srcDir) : [];
-  const existingFiles = [...existingSql, ...existingTs];
-
   const prefix = generateMigrationPrefix(strategy, existingFiles);
 
   const snakeName = name
@@ -206,131 +268,30 @@ async function cmdMigrateCreate(name: string): Promise<void> {
     .replace(/[\s-]+/g, '_')
     .toLowerCase();
 
-  const filename = `${prefix}_${snakeName}.ts`;
-  const filepath = join(srcDir, filename);
+  const filename = `${prefix}_${snakeName}.sql`;
+  const sql =
+    `-- Generated by d1-kyt schema:diff\n` +
+    `-- ${new Date().toISOString()}\n\n` +
+    `${statements.join('\n\n')}\n`;
 
-  const template = `import { defineTable, createIndex } from 'd1-kyt/migrate';
+  writeFileSync(join(outDir, filename), sql);
+  console.log(`Created: ${config.migrationsDir}/${filename}`);
 
-// Migration: ${snakeName}
-// Created: ${new Date().toISOString().split('T')[0]}
+  // Update snapshot
+  writeFileSync(snapshotPath, JSON.stringify(currentSnapshot, null, 2) + '\n');
+  const relDir = dir.replace(process.cwd() + '/', '');
+  console.log(`Updated: ${relDir}/${SNAPSHOT_FILE}`);
 
-export const migration = () => {
-  // Example:
-  // const User = defineTable('User', (col) => ({
-  //   email: col.text().notNull(),
-  //   name: col.text(),
-  // }));
-  //
-  // return [
-  //   ...User.sql,
-  //   createIndex(User, ['email'], { unique: true }),
-  // ];
-
-  return [];
-};
-`;
-
-  writeFileSync(filepath, template);
-  console.log(`Created: ${D1_KYT_DIR}/migrations/${filename}`);
-  console.log(`\nEdit the file, then run: d1-kyt migrate:build`);
+  console.log(`\nRun: wrangler d1 migrations apply <db> --local`);
 }
 
-async function cmdMigrateBuild(): Promise<void> {
-  const config = await readD1KytConfig();
-  if (!config) {
-    console.error('Error: d1-kyt not initialized. Run "d1-kyt init" first.');
-    process.exit(1);
-  }
+// ----------------------------------------------------------------------------
+// Arg helpers
+// ----------------------------------------------------------------------------
 
-  const srcDir = resolve(process.cwd(), D1_KYT_DIR, 'migrations');
-  const outDir = resolve(process.cwd(), config.migrationsDir);
-
-  if (!existsSync(outDir)) {
-    mkdirSync(outDir, { recursive: true });
-  }
-
-  // Match sequential (3-4 digit) and timestamp (14 digit) patterns
-  const tsFiles = readdirSync(srcDir)
-    .filter((f: string) => /^\d{3,14}_.*\.ts$/.test(f))
-    .sort();
-
-  if (tsFiles.length === 0) {
-    console.log('No migration files to build.');
-    return;
-  }
-
-  let built = 0;
-  for (const tsFile of tsFiles) {
-    const sqlFile = tsFile.replace(/\.ts$/, '.sql');
-    const sqlPath = join(outDir, sqlFile);
-    const isNew = !existsSync(sqlPath);
-
-    const tsPath = join(srcDir, tsFile);
-
-    try {
-      // Always import to populate the json column registry
-      const module = await import(tsPath);
-      const statements: string[] = module.migration();
-
-      // Skip SQL writing if already built
-      if (!isNew) continue;
-
-      if (statements.length === 0) {
-        console.log(`Skipped: ${tsFile} (empty migration)`);
-        continue;
-      }
-
-      const sql = `-- Generated by d1-kyt from ${tsFile}\n-- ${new Date().toISOString()}\n\n${statements.join('\n\n')}\n`;
-      writeFileSync(sqlPath, sql);
-      console.log(`Built: ${config.migrationsDir}/${sqlFile}`);
-      built++;
-    } catch (err) {
-      console.error(`Error building ${tsFile}:`, err);
-      process.exit(1);
-    }
-  }
-
-  // Merge json column overrides into kysely-codegen.json (non-destructive)
-  const overrides = getJsonColumnOverrides();
-  if (Object.keys(overrides).length > 0) {
-    const kyselyConfigPath = getKyselyConfigPath();
-    if (existsSync(kyselyConfigPath)) {
-      const kyselyConfig = JSON.parse(readFileSync(kyselyConfigPath, 'utf-8'));
-      const existing = kyselyConfig.overrides?.columns ?? {};
-      const merged = { ...existing };
-      for (const [key, val] of Object.entries(overrides)) {
-        if (!(key in merged)) merged[key] = val;
-      }
-      kyselyConfig.overrides = { ...kyselyConfig.overrides, columns: merged };
-      writeFileSync(kyselyConfigPath, JSON.stringify(kyselyConfig, null, 2) + '\n');
-    }
-  }
-
-  if (built === 0) {
-    console.log('All migrations already built.');
-  } else {
-    console.log(`\nBuilt ${built} migration(s). Run: wrangler d1 migrations apply <db> --local`);
-  }
-}
-
-function cmdTypegen(): void {
-  const kyselyConfigPath = getKyselyConfigPath();
-
-  if (!existsSync(kyselyConfigPath)) {
-    console.error('Error: d1-kyt not initialized. Run "d1-kyt init" first.');
-    process.exit(1);
-  }
-
-  console.log('Running kysely-codegen...');
-
-  try {
-    execSync(`npx kysely-codegen --config-file "${kyselyConfigPath}"`, {
-      stdio: 'inherit',
-      cwd: process.cwd(),
-    });
-  } catch {
-    process.exit(1);
-  }
+function flagValue(args: string[], flag: string): string | undefined {
+  const idx = args.indexOf(flag);
+  return idx !== -1 ? args[idx + 1] : undefined;
 }
 
 // ----------------------------------------------------------------------------
@@ -353,27 +314,19 @@ async function main(): Promise<void> {
 
   switch (command) {
     case 'init':
-      cmdInit();
+      cmdInit(flagValue(args, '--dir'));
       break;
 
-    case 'migrate:create': {
+    case 'schema:diff': {
       const name = args[1];
-      if (!name) {
+      if (!name || name.startsWith('--')) {
         console.error('Error: Migration name required');
-        console.error('Usage: d1-kyt migrate:create <name>');
+        console.error('Usage: d1-kyt schema:diff <name> [--dir <dir>] [--schema <path>]');
         process.exit(1);
       }
-      await cmdMigrateCreate(name);
+      await cmdSchemaDiff(name, flagValue(args, '--dir'), flagValue(args, '--schema'));
       break;
     }
-
-    case 'migrate:build':
-      await cmdMigrateBuild();
-      break;
-
-    case 'typegen':
-      cmdTypegen();
-      break;
 
     default:
       console.error(`Unknown command: ${command}`);

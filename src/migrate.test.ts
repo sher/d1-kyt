@@ -405,7 +405,7 @@ describe('getJsonColumnOverrides', () => {
     }));
 
     const overrides = getJsonColumnOverrides();
-    expect(overrides['Product.metadata']).toBe('unknown');
+    expect(overrides['Product.metadata']).toBe('ColumnType<JsonValue, string, string>');
   });
 
   it('returns Table.col entries for json columns after addColumn', () => {
@@ -413,7 +413,7 @@ describe('getJsonColumnOverrides', () => {
     addColumn(Venue, 'settings', (col) => col.json());
 
     const overrides = getJsonColumnOverrides();
-    expect(overrides['Venue.settings']).toBe('unknown');
+    expect(overrides['Venue.settings']).toBe('ColumnType<JsonValue, string, string>');
   });
 
   it('does not include non-json columns', () => {
@@ -427,29 +427,12 @@ describe('getJsonColumnOverrides', () => {
     expect('Category.count' in overrides).toBe(false);
   });
 
-  it('col.json(overrideType) writes the provided string to the registry', () => {
-    defineTable('Override', (col) => ({
-      prefs: col.json<{ theme: string }>('{ theme: string }'),
+  it('col.json() always emits ColumnType<JsonValue, string, string>', () => {
+    defineTable('JsonTypeCheck', (col) => ({
+      data: col.json<{ foo: string }>(),
     }), { primaryKey: false, createdAt: false, updatedAt: false });
 
     const overrides = getJsonColumnOverrides();
-    expect(overrides['Override.prefs']).toBe('{ theme: string }');
-  });
-
-  it('col.json() without argument still writes "unknown" (backward compat)', () => {
-    defineTable('NoOverride', (col) => ({
-      data: col.json(),
-    }), { primaryKey: false, createdAt: false, updatedAt: false });
-
-    const overrides = getJsonColumnOverrides();
-    expect(overrides['NoOverride.data']).toBe('unknown');
-  });
-
-  it('col.json(overrideType) works through addColumn', () => {
-    const Tbl = useTable<{ id: number }>('Tbl');
-    addColumn(Tbl, 'config', (col) => col.json<{ key: string }>('{ key: string }'));
-
-    const overrides = getJsonColumnOverrides();
-    expect(overrides['Tbl.config']).toBe('{ key: string }');
+    expect(overrides['JsonTypeCheck.data']).toBe('ColumnType<JsonValue, string, string>');
   });
 });

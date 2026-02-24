@@ -1,0 +1,286 @@
+import { describe, it, expect, expectTypeOf } from 'vitest';
+import * as v from 'valibot';
+import {
+  defineTable,
+  defineIndex,
+  defineTrigger,
+  sqlTypeFromSchema,
+} from './schema.js';
+
+// ----------------------------------------------------------------------------
+// sqlTypeFromSchema
+// ----------------------------------------------------------------------------
+
+describe('sqlTypeFromSchema', () => {
+  it('maps v.string() to TEXT NOT NULL', () => {
+    expect(sqlTypeFromSchema(v.string())).toEqual({
+      type: 'TEXT',
+      notNull: true,
+      isJson: false,
+    });
+  });
+
+  it('maps v.number() to REAL NOT NULL', () => {
+    expect(sqlTypeFromSchema(v.number())).toEqual({
+      type: 'REAL',
+      notNull: true,
+      isJson: false,
+    });
+  });
+
+  it('maps v.pipe(v.number(), v.integer()) to INTEGER NOT NULL', () => {
+    expect(sqlTypeFromSchema(v.pipe(v.number(), v.integer()))).toEqual({
+      type: 'INTEGER',
+      notNull: true,
+      isJson: false,
+    });
+  });
+
+  it('maps v.boolean() to INTEGER NOT NULL', () => {
+    expect(sqlTypeFromSchema(v.boolean())).toEqual({
+      type: 'INTEGER',
+      notNull: true,
+      isJson: false,
+    });
+  });
+
+  it('maps v.object() to TEXT NOT NULL (JSON)', () => {
+    expect(sqlTypeFromSchema(v.object({ a: v.string() }))).toEqual({
+      type: 'TEXT',
+      notNull: true,
+      isJson: true,
+    });
+  });
+
+  it('maps v.array() to TEXT NOT NULL (JSON)', () => {
+    expect(sqlTypeFromSchema(v.array(v.string()))).toEqual({
+      type: 'TEXT',
+      notNull: true,
+      isJson: true,
+    });
+  });
+
+  it('maps v.optional(v.string()) to TEXT nullable', () => {
+    expect(sqlTypeFromSchema(v.optional(v.string()))).toEqual({
+      type: 'TEXT',
+      notNull: false,
+      isJson: false,
+    });
+  });
+
+  it('maps v.optional(v.pipe(v.number(), v.integer())) to INTEGER nullable', () => {
+    expect(sqlTypeFromSchema(v.optional(v.pipe(v.number(), v.integer())))).toEqual({
+      type: 'INTEGER',
+      notNull: false,
+      isJson: false,
+    });
+  });
+
+  it('maps v.optional(v.string(), "guest") to TEXT with DEFAULT', () => {
+    expect(sqlTypeFromSchema(v.optional(v.string(), 'guest'))).toEqual({
+      type: 'TEXT',
+      notNull: false,
+      default: "'guest'",
+      isJson: false,
+    });
+  });
+
+  it('maps v.optional(v.number(), 0) to REAL with DEFAULT 0', () => {
+    expect(sqlTypeFromSchema(v.optional(v.number(), 0))).toEqual({
+      type: 'REAL',
+      notNull: false,
+      default: '0',
+      isJson: false,
+    });
+  });
+
+  it('maps v.optional(v.boolean(), true) to INTEGER with DEFAULT 1', () => {
+    expect(sqlTypeFromSchema(v.optional(v.boolean(), true))).toEqual({
+      type: 'INTEGER',
+      notNull: false,
+      default: '1',
+      isJson: false,
+    });
+  });
+
+  it('maps v.nullable(v.string()) to TEXT nullable', () => {
+    expect(sqlTypeFromSchema(v.nullable(v.string()))).toEqual({
+      type: 'TEXT',
+      notNull: false,
+      isJson: false,
+    });
+  });
+
+  it('maps v.nullable(v.object()) to TEXT nullable (JSON)', () => {
+    expect(sqlTypeFromSchema(v.nullable(v.object({ a: v.string() })))).toEqual({
+      type: 'TEXT',
+      notNull: false,
+      isJson: true,
+    });
+  });
+});
+
+// ----------------------------------------------------------------------------
+// defineTable
+// ----------------------------------------------------------------------------
+
+describe('defineTable', () => {
+  it('returns SchemaTable with correct metadata', () => {
+    const users = defineTable('users', {
+      email: v.string(),
+      name: v.optional(v.string()),
+    });
+
+    expect(users._name).toBe('users');
+    expect(Object.keys(users._columns)).toEqual(['email', 'name']);
+    expect(users._indexes).toEqual([]);
+    expect(users._triggers).toEqual([]);
+    expect(users._schemaTable).toBe(true);
+  });
+
+  it('accepts custom TableOptions', () => {
+    const t = defineTable(
+      'custom',
+      { slug: v.string() },
+      { primaryKey: false, createdAt: false, updatedAt: false },
+    );
+    expect(t._options).toMatchObject({ primaryKey: false, createdAt: false, updatedAt: false });
+  });
+
+  it('$inferSelect: non-optional column is required type', () => {
+    const users = defineTable('users_inf', { email: v.string() });
+    type S = typeof users.$inferSelect;
+    expectTypeOf<S['email']>().toEqualTypeOf<string>();
+  });
+
+  it('$inferSelect: optional column is T | undefined', () => {
+    const users = defineTable('users_inf2', {
+      email: v.string(),
+      name: v.optional(v.string()),
+    });
+    type S = typeof users.$inferSelect;
+    expectTypeOf<S['name']>().toEqualTypeOf<string | undefined>();
+  });
+
+  it('$inferSelect: includes auto id as number', () => {
+    const t = defineTable('t_auto', { x: v.string() });
+    type S = typeof t.$inferSelect;
+    expectTypeOf<S['id']>().toEqualTypeOf<number>();
+    expectTypeOf<S['createdAt']>().toEqualTypeOf<string>();
+    expectTypeOf<S['updatedAt']>().toEqualTypeOf<string>();
+  });
+
+  it('$inferInsert: required column stays required', () => {
+    const t = defineTable('t_ins', { email: v.string() });
+    type I = typeof t.$inferInsert;
+    expectTypeOf<I['email']>().toEqualTypeOf<string>();
+  });
+
+  it('$inferInsert: optional column becomes optional', () => {
+    const t = defineTable('t_ins2', { name: v.optional(v.string()) });
+    type I = typeof t.$inferInsert;
+    expectTypeOf<I['name']>().toEqualTypeOf<string | undefined>();
+  });
+
+  it('$inferInsert: id is optional', () => {
+    const t = defineTable('t_ins3', { x: v.string() });
+    type I = typeof t.$inferInsert;
+    expectTypeOf<I['id']>().toEqualTypeOf<number | undefined>();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// defineIndex
+// ----------------------------------------------------------------------------
+
+describe('defineIndex', () => {
+  it('creates an index with auto-generated name', () => {
+    const users = defineTable('idx_users', { email: v.string() });
+    const idx = defineIndex(users, ['email'], { unique: true });
+
+    expect(idx.name).toBe('idx_users_email_uq');
+    expect(idx.columns).toEqual(['email']);
+    expect(idx.unique).toBe(true);
+    expect(idx._tableName).toBe('idx_users');
+  });
+
+  it('attaches the index to the table', () => {
+    const users = defineTable('idx_attach', { email: v.string() });
+    const idx = defineIndex(users, ['email']);
+    expect(users._indexes).toHaveLength(1);
+    expect(users._indexes[0]).toBe(idx);
+  });
+
+  it('auto-names non-unique index with _idx suffix', () => {
+    const t = defineTable('idx_name', { cityId: v.pipe(v.number(), v.integer()) });
+    const idx = defineIndex(t, ['cityId']);
+    expect(idx.name).toBe('idx_name_cityId_idx');
+  });
+
+  it('accepts a custom index name', () => {
+    const t = defineTable('idx_custom', { email: v.string() });
+    const idx = defineIndex(t, ['email'], { name: 'my_custom_idx' });
+    expect(idx.name).toBe('my_custom_idx');
+  });
+
+  it('accepts a where clause for partial index', () => {
+    const t = defineTable('idx_partial', { email: v.string(), active: v.boolean() });
+    const idx = defineIndex(t, ['email'], { where: '"active" = 1' });
+    expect(idx.where).toBe('"active" = 1');
+  });
+
+  it('accepts composite columns', () => {
+    const t = defineTable('idx_comp', { a: v.string(), b: v.string() });
+    const idx = defineIndex(t, ['a', 'b']);
+    expect(idx.name).toBe('idx_comp_a_b_idx');
+    expect(idx.columns).toEqual(['a', 'b']);
+  });
+
+  it('type error: column name not in table columns', () => {
+    const users = defineTable('idx_type', { email: v.string() });
+    // @ts-expect-error 'nonexistent' is not a key of the table's columns
+    defineIndex(users, ['nonexistent']);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// defineTrigger
+// ----------------------------------------------------------------------------
+
+describe('defineTrigger', () => {
+  it('creates a trigger and attaches it to the table', () => {
+    const users = defineTable('trg_users', { email: v.string() });
+    const trg = defineTrigger('trg_users_audit', {
+      timing: 'AFTER',
+      event: 'INSERT',
+      on: users,
+      body: `INSERT INTO audit (action) VALUES ('insert');`,
+    });
+
+    expect(trg.name).toBe('trg_users_audit');
+    expect(trg.timing).toBe('AFTER');
+    expect(trg.event).toBe('INSERT');
+    expect(trg.tableName).toBe('trg_users');
+    expect(users._triggers).toHaveLength(1);
+    expect(users._triggers[0]).toBe(trg);
+  });
+
+  it('supports BEFORE event', () => {
+    const t = defineTable('trg_before', { x: v.string() });
+    const trg = defineTrigger('trg_before_del', {
+      timing: 'BEFORE',
+      event: 'DELETE',
+      on: t,
+      body: 'SELECT 1;',
+    });
+    expect(trg.timing).toBe('BEFORE');
+    expect(trg.event).toBe('DELETE');
+  });
+
+  it('multiple triggers on same table', () => {
+    const t = defineTable('trg_multi', { x: v.string() });
+    defineTrigger('trg_multi_ins', { timing: 'AFTER', event: 'INSERT', on: t, body: 'SELECT 1;' });
+    defineTrigger('trg_multi_upd', { timing: 'AFTER', event: 'UPDATE', on: t, body: 'SELECT 2;' });
+    expect(t._triggers).toHaveLength(2);
+  });
+});

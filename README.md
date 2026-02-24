@@ -4,83 +4,214 @@ Opinionated [Cloudflare D1](https://developers.cloudflare.com/d1/) + [Kysely](ht
 
 **ky**(sely) + **t**(oolkit) = **kyt**
 
-> **Not an ORM.** Thin wrapper with helpers that relies on Kysely's type inference. No magic, no runtime overhead.
+> **Not an ORM.** Thin wrapper with helpers that relies on Kysely's type inference and Valibot schemas. No magic, no runtime overhead.
 
-## Migration DSL
+## Install
 
-```typescript
-// d1-kyt/migrations/0001_create_user_table.ts
-
-import { defineTable, createIndex } from 'd1-kyt/migrate';
-
-const User = defineTable('User', (col) => ({
-  externalId: col.text().notNull(),
-  email: col.text().notNull(),
-  name: col.text(),
-  preferences: col.json<{ theme: string; notifications: boolean }>('{ theme: string; notifications: boolean }'),
-}));
-
-export const migration = () => [
-  ...User.sql,
-  createIndex(User, ['externalId'], { unique: true }),
-  createIndex(User, ['email'], { unique: true }),
-];
+```bash
+npm install d1-kyt kysely valibot
 ```
 
-Column types: `col.text()`, `col.integer()`, `col.real()`, `col.blob()`, `col.json<T>(overrideType?)`.
-`col.json<T>()` stores JSON as SQLite TEXT. The generic type parameter annotates the column's shape at compile time — use `TableType<typeof Table>` to derive a fully-typed row type from the DSL. Pass a TypeScript type string as the optional second argument to write that type into the kysely-codegen override registry; without it, `"unknown"` is written.
+## Workflow
 
-```typescript
-import { defineTable, type TableType } from 'd1-kyt/migrate';
-
-const User = defineTable('User', (col) => ({
-  preferences: col.json<{ theme: string; notifications: boolean }>('{ theme: string; notifications: boolean }'),
-}));
-
-type UserRow = TableType<typeof User>;
-// { preferences: { theme: string; notifications: boolean }; id: unknown; createdAt: unknown; updatedAt: unknown }
-// → generated.ts emits: preferences: { theme: string; notifications: boolean }
+```
+schema.ts  →  schema:diff  →  .sql migration  →  wrangler apply  →  types from schema
 ```
 
-The type string passed to `col.json()` is written into `d1-kyt/kysely-codegen.json` so kysely-codegen emits the real shape in `generated.ts` instead of `unknown`. `generated.ts` remains the single source of truth — auto columns (`id`, `createdAt`, `updatedAt`) are typed there, not in `TableType`.
+1. Define your schema with Valibot types in `schema.ts`
+2. Run `d1-kyt schema:diff <name>` — diffs against a snapshot, writes a `.sql` migration
+3. Apply with `wrangler d1 migrations apply <db> --local`
+4. Use `$inferSelect` / `$inferInsert` from your schema for type-safe queries
+
+No code generation step required — types come directly from the schema file.
+
+---
+
+## Quick start
+
+```bash
+# In your Cloudflare Workers project:
+d1-kyt init
+
+# Edit the generated schema file, then:
+d1-kyt schema:diff create_users
+
+# Apply to local D1:
+wrangler d1 migrations apply <db-name> --local
+```
+
+`init` auto-detects the right directory. If your wrangler config has `migrations_dir = "db/migrations"`, it places files in `db/`. Otherwise it uses `d1-kyt/`.
+
+---
+
+## Schema
+
+```typescript
+// db/schema.ts  (or d1-kyt/schema.ts)
+import { defineTable, defineIndex, defineTrigger } from 'd1-kyt/schema';
+import * as v from 'valibot';
+
+export const users = defineTable('users', {
+  email:  v.string(),                                    // TEXT NOT NULL
+  name:   v.optional(v.string()),                        // TEXT (nullable)
+  age:    v.optional(v.pipe(v.number(), v.integer())),   // INTEGER (nullable)
+  prefs:  v.optional(v.object({ theme: v.string() })),   // TEXT JSON (nullable)
+  role:   v.optional(v.string(), 'user'),                // TEXT DEFAULT 'user'
+});
+
+export const usersEmailIdx = defineIndex(users, ['email'], { unique: true });
+
+export const auditTrigger = defineTrigger('users_audit_trg', {
+  timing: 'AFTER', event: 'INSERT', on: users,
+  body: `INSERT INTO audit (action, at) VALUES ('insert', datetime('now'));`,
+});
+```
+
+### Valibot → SQL type mapping
+
+| Valibot schema | SQL type | Nullable |
+|---|---|---|
+| `v.string()` | TEXT | NOT NULL |
+| `v.number()` | REAL | NOT NULL |
+| `v.pipe(v.number(), v.integer(), ...)` | INTEGER | NOT NULL |
+| `v.boolean()` | INTEGER | NOT NULL |
+| `v.object({...})` or `v.array(...)` | TEXT (JSON) | NOT NULL |
+| `v.optional(X)` | type of X | NULL |
+| `v.nullable(X)` | type of X | NULL |
+| `v.optional(X, defaultVal)` | type of X + DEFAULT | NULL |
+
+### Auto columns
+
+Every table gets `id`, `createdAt`, `updatedAt` by default, plus an `AFTER UPDATE` trigger for `updatedAt`. Control via options:
+
+```typescript
+// Disable everything
+defineTable('events', { uuid: v.string() }, {
+  primaryKey: false, createdAt: false, updatedAt: false,
+})
+
+// Custom names (snake_case)
+defineTable('users', { email: v.string() }, {
+  primaryKeyColumn: 'user_id',
+  createdAtColumn: 'created_at',
+  updatedAtColumn: 'updated_at',
+})
+```
+
+---
+
+## CLI
+
+```bash
+d1-kyt init [--dir <dir>]                          # scaffold config + schema template
+d1-kyt schema:diff <name> [--dir <dir>]            # diff schema → write .sql migration
+d1-kyt schema:diff <name> --schema <path>          # use a custom schema file path
+```
+
+### `init`
+
+Creates (skips if already exists):
+- `<dir>/config.ts` — migrationsDir + namingStrategy
+- `<dir>/schema.ts` — schema template to fill in
+- `<dir>/schema.snapshot.jsonc` — diff baseline (**commit this to git**)
+
+Directory resolution:
+1. `--dir <path>` if provided
+2. Parent of wrangler `migrations_dir` (e.g. `db/` when `migrations_dir = "db/migrations"`)
+3. `d1-kyt/` as fallback
+
+### `schema:diff <name>`
+
+Reads your `schema.ts`, diffs against `schema.snapshot.jsonc`, writes a numbered `.sql` file to your `migrationsDir`, and updates the snapshot. **Commit the `.sql` and the snapshot together** — they are the source of truth for migration history.
+
+```bash
+d1-kyt schema:diff create_users          # generates 0001_create_users.sql
+d1-kyt schema:diff add_email_index       # generates 0002_add_email_index.sql
+d1-kyt schema:diff --dir db add_posts    # use db/config.ts, db/schema.ts
+```
+
+### Config
+
+```typescript
+// db/config.ts  (or d1-kyt/config.ts)
+import { defineConfig } from 'd1-kyt/config';
+
+export default defineConfig({
+  migrationsDir: 'db/migrations',
+  namingStrategy: 'sequential',  // or 'timestamp'
+});
+```
+
+---
+
+## Type inference
+
+Types come directly from your schema — no code generation step required:
+
+```typescript
+import { users } from './db/schema';
+
+// Full row returned by SELECT
+type UserRow = typeof users.$inferSelect;
+// { id: number; email: string; name: string | undefined; age: number | undefined;
+//   prefs: { theme: string } | undefined; role: string | undefined;
+//   createdAt: string; updatedAt: string }
+
+// Input for INSERT
+type NewUser = typeof users.$inferInsert;
+// { email: string; name?: string | undefined; age?: number | undefined; ... id?: number }
+```
+
+### Building a DB type for Kysely
+
+```typescript
+// db/index.ts
+import { users } from './schema';
+
+export type DB = {
+  users: typeof users.$inferSelect;
+  // ... add other tables
+};
+```
+
+---
 
 ## Query Builder
 
 ```typescript
 // src/queries.ts
-
 import { createQueryBuilder } from 'd1-kyt';
-import type { DB } from './db/generated';
+import type { DB } from './db';
 
 const db = createQueryBuilder<DB>();
 
-export const getUsers = () => db.selectFrom('User').selectAll().compile();
+export const listUsers = () =>
+  db.selectFrom('users').selectAll().compile();
 
-export const getUser = (id: number) =>
-  db.selectFrom('User').selectAll().where('id', '=', id).compile();
+export const getUserByEmail = (email: string) =>
+  db.selectFrom('users').selectAll().where('email', '=', email).compile();
 
-export const insertUser = (email: string, name: string) =>
-  db.insertInto('User').values({ email, name }).returning(['id']).compile();
+export const insertUser = (email: string, name?: string) =>
+  db.insertInto('users').values({ email, name }).returning(['id']).compile();
 ```
 
 ## Execute Queries
 
 ```typescript
 // src/app.ts
-
-import Hono from 'hono';
+import { Hono } from 'hono';
 import { queryAll, queryFirst, queryRun } from 'd1-kyt';
 import * as q from './queries';
 
 const app = new Hono();
 
 app.get('/users', async (c) => {
-  const users = await queryAll(c.env.DB, q.getUsers());
+  const users = await queryAll(c.env.DB, q.listUsers());
   return c.json(users);
 });
 
-app.get('/users/:id', async (c) => {
-  const user = await queryFirst(c.env.DB, q.getUser(c.req.param('id')));
+app.get('/users/:email', async (c) => {
+  const user = await queryFirst(c.env.DB, q.getUserByEmail(c.req.param('email')));
   return user ? c.json(user) : c.notFound();
 });
 
@@ -91,110 +222,79 @@ app.post('/users', async (c) => {
 });
 ```
 
-## Customizing Auto Columns
+---
+
+## Partial indexes
 
 ```typescript
-// Disable all auto columns
-const Event = defineTable('Event', (col) => ({
-  uuid: col.text().notNull(),
-  name: col.text().notNull(),
-}), { primaryKey: false, createdAt: false, updatedAt: false });
-
-// Custom column names (snake_case)
-const User = defineTable('user', (col) => ({
-  email: col.text().notNull(),
-}), {
-  primaryKeyColumn: 'user_id',
-  createdAtColumn: 'created_at',
-  updatedAtColumn: 'updated_at',
-});
+defineIndex(users, ['email'], {
+  unique: true,
+  where: '"active" = 1',   // raw SQL string
+})
 ```
 
-## Later Migrations
-
-Use `createUseTable` for type-safe references to existing tables:
-
-```typescript
-import type { DB } from '../../db/generated';
-import { createUseTable, addColumn, createIndex } from 'd1-kyt/migrate';
-
-const useTable = createUseTable<DB>();
-const User = useTable('User');
-
-export const migration = () => [
-  addColumn(User, 'age', (col) => col.integer()),
-  createIndex(User, ['age']),
-  // partial index — where accepts a typed column accessor or a raw SQL string
-  createIndex(User, ['age'], { where: col => `${col('age')} IS NOT NULL` }),
-];
-```
-
-## Install
-
-```bash
-npm install d1-kyt kysely
-npm install -D kysely-codegen
-```
-
-## CLI
-
-```bash
-d1-kyt init                      # creates d1-kyt/ folder with config
-d1-kyt migrate:create <name>     # creates d1-kyt/migrations/0001_<name>.ts
-d1-kyt migrate:build             # compiles *.ts → db/migrations/*.sql
-d1-kyt typegen                   # runs kysely-codegen
-```
-
-Reads `wrangler.jsonc` to detect `migrations_dir` automatically.
-
-### Type Generation
-
-`d1-kyt typegen` requires a `DATABASE_URL` environment variable pointing to a local SQLite database. kysely-codegen connects to this database to infer types.
-
-```bash
-# Apply migrations to local D1 database first
-wrangler d1 migrations apply <db-name> --local
-
-# Then generate types (local D1 databases live in .wrangler/)
-DATABASE_URL=.wrangler/state/v3/d1/<db-id>/db.sqlite d1-kyt typegen
-```
-
-### Configuration
-
-```typescript
-// d1-kyt/config.ts
-
-import { defineConfig } from 'd1-kyt/config';
-
-export default defineConfig({
-  migrationsDir: 'db/migrations',
-  dbDir: 'db',
-  namingStrategy: 'sequential', // or 'timestamp'
-});
-```
+---
 
 ## Conventions
 
-- Auto `id`, `createdAt`, `updatedAt` on every table (configurable)
-- Auto trigger for `updatedAt`
-- Index naming: `{table}_{cols}_idx`, `{table}_{cols}_uq`
+- Auto `id INTEGER PRIMARY KEY AUTOINCREMENT`, `createdAt TEXT`, `updatedAt TEXT` on every table (all configurable/disableable)
+- Auto `AFTER UPDATE` trigger to keep `updatedAt` current
+- Index naming: `{table}_{cols}_idx` / `{table}_{cols}_uq`
 - Trigger naming: `{table}_{col}_trg`
+- `schema.snapshot.jsonc` is the diff source of truth — always commit it alongside migration SQL files
 
-## API
+---
 
-| Function                               | Description                       |
-| -------------------------------------- | --------------------------------- |
-| `defineTable(name, fn, opts?)`         | Define new table                  |
-| `createUseTable<DB>()`                 | Factory for typed table refs      |
-| `useTable<T>(name)`                    | Reference table (manual typing)   |
-| `createIndex(table, cols, opts?)`      | Create index                      |
-| `addColumn(table, col, fn)`            | Add column                        |
-| `dropTable(table, updatedAtCol?)`      | Drop table + trigger              |
-| `dropIndex(name)`                      | Drop index                        |
-| `queryAll(db, query)`                  | Execute, return all rows          |
-| `queryFirst(db, query)`                | Execute, return first row or null |
-| `queryRun(db, query)`                  | Execute mutation                  |
-| `queryBatch(db, queries)`              | Execute batch                     |
+## API reference
+
+### `d1-kyt/schema`
+
+| Export | Description |
+|---|---|
+| `defineTable(name, columns, opts?)` | Define a table; returns `SchemaTable` with `$inferSelect` / `$inferInsert` |
+| `defineIndex(table, columns, opts?)` | Define an index (columns are type-checked against the table) |
+| `defineTrigger(name, opts)` | Define a custom trigger attached to a table |
+| `sqlTypeFromSchema(schema)` | Inspect a Valibot schema → `{ type, notNull, default?, isJson }` |
+| `TableOptions` | Options type for auto columns (re-exported) |
+
+### `d1-kyt` (main)
+
+| Export | Description |
+|---|---|
+| `createQueryBuilder<DB>()` | Kysely instance (compile-only, no execution) |
+| `queryAll(db, query)` | Execute query, return all rows |
+| `queryFirst(db, query)` | Execute query, return first row or null |
+| `queryRun(db, query)` | Execute mutation, return run metadata |
+| `queryBatch(db, queries)` | Execute multiple queries as a D1 batch |
+
+### `d1-kyt/config`
+
+| Export | Description |
+|---|---|
+| `defineConfig(config)` | Define `config.ts` (typed helper) |
+
+---
+
+## Legacy migrate API
+
+The imperative migration DSL (`d1-kyt/migrate`) is still available but superseded by the schema-first approach above. It will be removed in a future major version.
+
+```typescript
+// d1-kyt/migrations/0001_create_users.ts
+import { defineTable, createIndex } from 'd1-kyt/migrate';
+
+const users = defineTable('users', (col) => ({
+  email: col.text().notNull(),
+  name:  col.text(),
+}));
+
+export const migration = () => [
+  ...users.sql,
+  createIndex(users, ['email'], { unique: true }),
+];
+```
+
+---
 
 ## License
 
