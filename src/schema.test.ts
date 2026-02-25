@@ -1,10 +1,12 @@
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import * as v from 'valibot';
+import type { ColumnType, Generated } from 'kysely';
 import {
   defineTable,
   defineIndex,
   defineTrigger,
   sqlTypeFromSchema,
+  type InferDB,
 } from './schema.js';
 
 // ----------------------------------------------------------------------------
@@ -282,5 +284,103 @@ describe('defineTrigger', () => {
     defineTrigger('trg_multi_ins', { timing: 'AFTER', event: 'INSERT', on: t, body: 'SELECT 1;' });
     defineTrigger('trg_multi_upd', { timing: 'AFTER', event: 'UPDATE', on: t, body: 'SELECT 2;' });
     expect(t._triggers).toHaveLength(2);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// InferDB
+// ----------------------------------------------------------------------------
+
+describe('InferDB', () => {
+  const Match = defineTable('Match', {
+    league: v.string(),
+    score: v.pipe(v.number(), v.integer()),
+    rating: v.number(),
+    active: v.boolean(),
+    nickname: v.optional(v.string(), 'anon'),
+    note: v.optional(v.string()),
+    meta: v.object({ key: v.string() }),
+    tags: v.array(v.string()),
+    optMeta: v.optional(v.object({ key: v.string() })),
+    nullableName: v.nullable(v.string()),
+    nullableObj: v.nullable(v.object({ x: v.number() })),
+  });
+
+  type DB = InferDB<{ Match: typeof Match }>;
+  type Row = DB['Match'];
+
+  it('required string column → string', () => {
+    expectTypeOf<Row['league']>().toEqualTypeOf<string>();
+  });
+
+  it('required integer column → number', () => {
+    expectTypeOf<Row['score']>().toEqualTypeOf<number>();
+  });
+
+  it('required number column → number', () => {
+    expectTypeOf<Row['rating']>().toEqualTypeOf<number>();
+  });
+
+  it('required boolean column → boolean', () => {
+    expectTypeOf<Row['active']>().toEqualTypeOf<boolean>();
+  });
+
+  it('optional with default → Generated<T>', () => {
+    expectTypeOf<Row['nickname']>().toEqualTypeOf<Generated<string>>();
+  });
+
+  it('optional without default → Generated<T | null>', () => {
+    expectTypeOf<Row['note']>().toEqualTypeOf<Generated<string | null>>();
+  });
+
+  it('required JSON object → ColumnType<T, string, string>', () => {
+    expectTypeOf<Row['meta']>().toEqualTypeOf<ColumnType<{ key: string }, string, string>>();
+  });
+
+  it('required JSON array → ColumnType<T, string, string>', () => {
+    expectTypeOf<Row['tags']>().toEqualTypeOf<ColumnType<string[], string, string>>();
+  });
+
+  it('optional JSON without default → ColumnType<T | null, string | null | undefined, string | null | undefined>', () => {
+    expectTypeOf<Row['optMeta']>().toEqualTypeOf<
+      ColumnType<{ key: string } | null, string | null | undefined, string | null | undefined>
+    >();
+  });
+
+  it('nullable string → T | null', () => {
+    expectTypeOf<Row['nullableName']>().toEqualTypeOf<string | null>();
+  });
+
+  it('nullable JSON object → T | null', () => {
+    expectTypeOf<Row['nullableObj']>().toEqualTypeOf<{ x: number } | null>();
+  });
+
+  it('auto id → Generated<number>', () => {
+    expectTypeOf<Row['id']>().toEqualTypeOf<Generated<number>>();
+  });
+
+  it('auto createdAt → Generated<string>', () => {
+    expectTypeOf<Row['createdAt']>().toEqualTypeOf<Generated<string>>();
+  });
+
+  it('auto updatedAt → Generated<string>', () => {
+    expectTypeOf<Row['updatedAt']>().toEqualTypeOf<Generated<string>>();
+  });
+
+  it('primaryKey: false suppresses id column', () => {
+    const NoId = defineTable('NoId', { name: v.string() }, { primaryKey: false });
+    type NoIdDB = InferDB<{ NoId: typeof NoId }>;
+    // @ts-expect-error id should not exist when primaryKey: false
+    type _check = NoIdDB['NoId']['id'];
+  });
+
+  it('custom primaryKeyColumn name is respected', () => {
+    const Custom = defineTable(
+      'Custom',
+      { name: v.string() },
+      { primaryKeyColumn: 'uid' as const },
+    );
+    type CustomDB = InferDB<{ Custom: typeof Custom }>;
+    expectTypeOf<CustomDB['Custom']['uid']>().toEqualTypeOf<Generated<number>>();
   });
 });

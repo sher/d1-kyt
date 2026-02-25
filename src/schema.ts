@@ -5,6 +5,7 @@
  */
 
 import type * as v from 'valibot';
+import type { ColumnType, Generated } from 'kysely';
 import type { TableOptions } from './migrate.js';
 
 export type { TableOptions };
@@ -63,6 +64,49 @@ type AutoColumnsSelect<O extends TableOptions> =
   (O['primaryKey'] extends false ? object : { [K in PkColName<O>]: number }) &
   (O['createdAt'] extends false ? object : { [K in CreatedColName<O>]: string }) &
   (O['updatedAt'] extends false ? object : { [K in UpdatedColName<O>]: string });
+
+type AutoColumnsKysely<O extends TableOptions> =
+  (O['primaryKey'] extends false ? object : { [K in PkColName<O>]: Generated<number> }) &
+  (O['createdAt'] extends false ? object : { [K in CreatedColName<O>]: Generated<string> }) &
+  (O['updatedAt'] extends false ? object : { [K in UpdatedColName<O>]: Generated<string> });
+
+// Detect object/array (JSON) types vs primitives. Tuple wrapping prevents
+// distributive behavior: [string | object] extends [object] is false.
+type IsJsonOutput<T> =
+  [T] extends [string | number | boolean | null | undefined] ? false :
+  [T] extends [object] ? true :
+  false;
+
+// Map a single valibot schema to its Kysely column type.
+type InferKyselyColumn<S extends v.BaseSchema<any, any, any>> =
+  S extends { type: 'optional'; wrapped: infer Inner extends v.BaseSchema<any, any, any>; default: infer Default }
+    ? IsJsonOutput<v.InferOutput<Inner>> extends true
+      ? Default extends undefined
+        ? ColumnType<v.InferOutput<Inner> | null, string | null | undefined, string | null | undefined>
+        : ColumnType<v.InferOutput<Inner>, string | undefined, string>
+      : Default extends undefined
+        ? Generated<v.InferOutput<Inner> | null>
+        : Generated<v.InferOutput<Inner>>
+    : S extends { type: 'nullable'; wrapped: infer Inner extends v.BaseSchema<any, any, any> }
+      ? v.InferOutput<Inner> | null
+      : IsJsonOutput<v.InferOutput<S>> extends true
+        ? ColumnType<v.InferOutput<S>, string, string>
+        : v.InferOutput<S>;
+
+/**
+ * Infer a Kysely-compatible DB type from a record of SchemaTable definitions.
+ * Columns with defaults or auto-columns become `Generated<T>` (optional on insert).
+ * JSON columns (object/array schemas) use `ColumnType<T, string, string>`.
+ *
+ * @example
+ * export type DB = InferDB<{ Match: typeof Match }>;
+ * export const db = createQueryBuilder<DB>();
+ */
+export type InferDB<Tables extends Record<string, SchemaTable<any, any>>> = {
+  [K in keyof Tables]: {
+    [C in keyof Tables[K]['_columns']]: InferKyselyColumn<Tables[K]['_columns'][C]>;
+  } & AutoColumnsKysely<Tables[K]['_options']>;
+};
 
 type InferSelect<
   Cols extends Record<string, v.BaseSchema<any, any, any>>,

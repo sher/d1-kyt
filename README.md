@@ -48,7 +48,7 @@ wrangler d1 migrations apply <db-name> --local
 
 ```typescript
 // db/schema.ts
-import { defineTable, defineIndex, defineTrigger } from 'd1-kyt/schema';
+import { defineTable, defineIndex, defineTrigger, type InferDB } from 'd1-kyt/schema';
 import { createQueryBuilder } from 'd1-kyt';
 import * as v from 'valibot';
 
@@ -67,10 +67,7 @@ export const auditTrigger = defineTrigger('users_audit_trg', {
   body: `INSERT INTO audit (action, at) VALUES ('insert', datetime('now'));`,
 });
 
-// Add each table here as you define it.
-export type DB = {
-  users: typeof users.$inferSelect;
-};
+export type DB = InferDB<{ users: typeof users }>;
 
 // Compile-only Kysely query builder — stateless, no connection held.
 // Use with queryAll/queryFirst/queryRun to execute against D1.
@@ -171,6 +168,10 @@ type UserRow = typeof users.$inferSelect;
 // Input for INSERT
 type NewUser = typeof users.$inferInsert;
 // { email: string; name?: string | undefined; age?: number | undefined; ... id?: number }
+
+// Kysely DB type — auto-columns are Generated<T> so insert doesn't require them
+import { type InferDB } from 'd1-kyt/schema';
+export type DB = InferDB<{ users: typeof users }>;
 ```
 
 ---
@@ -303,6 +304,7 @@ defineIndex(users, ['email'], {
 | `defineTrigger(name, opts)` | Define a custom trigger attached to a table |
 | `sqlTypeFromSchema(schema)` | Inspect a Valibot schema → `{ type, notNull, default?, isJson }` |
 | `TableOptions` | Options type for auto columns (re-exported) |
+| `InferDB<Tables>` | Infer a Kysely-compatible `DB` type from a record of `SchemaTable` definitions |
 
 ### `d1-kyt` (main)
 
