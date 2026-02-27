@@ -1,4 +1,30 @@
 import type { CompiledQuery } from 'kysely';
+import type { SchemaTable } from './schema.js';
+import { sqlTypeFromSchema } from './schema.js';
+
+/**
+ * Serialize a query parameter for D1 binding.
+ * D1 accepts: null | string | number | boolean | ArrayBuffer | ArrayBufferView.
+ * Plain objects and arrays (JSON columns) must be stringified.
+ */
+function serializeParam(p: unknown): unknown {
+  if (p === null || p === undefined) return p;
+  if (typeof p === 'string' || typeof p === 'number' || typeof p === 'boolean') return p;
+  if (p instanceof ArrayBuffer || ArrayBuffer.isView(p)) return p;
+  return JSON.stringify(p);
+}
+
+function deserializeRow<T>(row: Record<string, unknown>, table: SchemaTable<any, any>): T {
+  const result = { ...row };
+  for (const [col, colSchema] of Object.entries(table._columns)) {
+    if (col in result && typeof result[col] === 'string') {
+      if (sqlTypeFromSchema(colSchema).isJson) {
+        result[col] = JSON.parse(result[col] as string);
+      }
+    }
+  }
+  return result as T;
+}
 
 /**
  * D1 query result with metadata
@@ -54,13 +80,15 @@ interface D1Result<T = unknown> {
  */
 export async function queryAll<T>(
   db: D1Database,
-  query: CompiledQuery<T>
+  query: CompiledQuery<T>,
+  table?: SchemaTable<any, any>,
 ): Promise<T[]> {
   const result = await db
     .prepare(query.sql)
-    .bind(...query.parameters)
+    .bind(...query.parameters.map(serializeParam))
     .all<T>();
-  return result.results ?? [];
+  const rows = result.results ?? [];
+  return table ? rows.map((r) => deserializeRow<T>(r as Record<string, unknown>, table)) : rows;
 }
 
 /**
@@ -73,13 +101,15 @@ export async function queryAll<T>(
  */
 export async function queryFirst<T>(
   db: D1Database,
-  query: CompiledQuery<T>
+  query: CompiledQuery<T>,
+  table?: SchemaTable<any, any>,
 ): Promise<T | null> {
   const result = await db
     .prepare(query.sql)
-    .bind(...query.parameters)
+    .bind(...query.parameters.map(serializeParam))
     .first<T>();
-  return result ?? null;
+  if (result == null) return null;
+  return table ? deserializeRow<T>(result as Record<string, unknown>, table) : result;
 }
 
 /**
@@ -97,7 +127,7 @@ export async function queryRun(
 ): Promise<D1RunResult> {
   const result = await db
     .prepare(query.sql)
-    .bind(...query.parameters)
+    .bind(...query.parameters.map(serializeParam))
     .run();
   return {
     success: result.success,
@@ -121,7 +151,7 @@ export async function queryBatch(
   queries: readonly CompiledQuery<unknown>[]
 ): Promise<D1RunResult[]> {
   const statements = queries.map((q) =>
-    db.prepare(q.sql).bind(...q.parameters)
+    db.prepare(q.sql).bind(...q.parameters.map(serializeParam))
   );
   const results = await db.batch(statements);
   return results.map((r) => ({

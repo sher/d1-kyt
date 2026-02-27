@@ -82,15 +82,15 @@ type InferKyselyColumn<S extends v.BaseSchema<any, any, any>> =
   S extends { type: 'optional'; wrapped: infer Inner extends v.BaseSchema<any, any, any>; default: infer Default }
     ? IsJsonOutput<v.InferOutput<Inner>> extends true
       ? Default extends undefined
-        ? ColumnType<v.InferOutput<Inner> | null, string | null | undefined, string | null | undefined>
-        : ColumnType<v.InferOutput<Inner>, string | undefined, string>
+        ? ColumnType<v.InferOutput<Inner> | null, v.InferOutput<Inner> | null | undefined, v.InferOutput<Inner> | null | undefined>
+        : ColumnType<v.InferOutput<Inner>, v.InferOutput<Inner> | undefined, v.InferOutput<Inner>>
       : Default extends undefined
         ? Generated<v.InferOutput<Inner> | null>
         : Generated<v.InferOutput<Inner>>
     : S extends { type: 'nullable'; wrapped: infer Inner extends v.BaseSchema<any, any, any> }
       ? v.InferOutput<Inner> | null
       : IsJsonOutput<v.InferOutput<S>> extends true
-        ? ColumnType<v.InferOutput<S>, string, string>
+        ? ColumnType<v.InferOutput<S>, v.InferOutput<S>, v.InferOutput<S>>
         : v.InferOutput<S>;
 
 /**

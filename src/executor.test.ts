@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { queryAll, queryFirst, queryRun, queryBatch } from './executor.js';
 import { createQueryBuilder } from './query-builder.js';
+import { defineTable } from './schema.js';
+import * as v from 'valibot';
 
 interface TestDB {
   User: {
@@ -10,6 +12,12 @@ interface TestDB {
 }
 
 const db = createQueryBuilder<TestDB>();
+
+const ItemTable = defineTable('Item', {
+  name: v.string(),
+  meta: v.object({ score: v.number() }),
+  tags: v.optional(v.array(v.string())),
+});
 
 function createMockD1() {
   const mockStatement = {
@@ -125,5 +133,105 @@ describe('queryBatch', () => {
     expect(mockDb.batch).toHaveBeenCalled();
     expect(results).toHaveLength(2);
     expect(results[0].success).toBe(true);
+  });
+
+  it('serializes JSON parameters in batch', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    const meta = { duration: 1, rows_read: 0, rows_written: 1, last_row_id: 0, changed_db: true, changes: 1 };
+    mockDb.batch.mockResolvedValue([{ success: true, meta }]);
+
+    // Compile a query with an object parameter
+    const rawQuery = {
+      sql: 'insert into "Item" ("meta") values (?)',
+      parameters: [{ score: 42 }] as unknown[],
+      query: {} as any,
+    };
+
+    await queryBatch(mockDb, [rawQuery]);
+
+    // The statement bind should receive the stringified value, not the raw object
+    expect(mockStatement.bind).toHaveBeenCalledWith(JSON.stringify({ score: 42 }));
+  });
+});
+
+describe('queryAll with table (deserialization)', () => {
+  it('deserializes JSON string columns to objects', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    const rows = [{ name: 'x', meta: '{"score":10}', tags: null }];
+    mockStatement.all.mockResolvedValue({ results: rows, success: true, meta: {} });
+
+    const rawQuery = {
+      sql: 'select * from "Item"',
+      parameters: [] as unknown[],
+      query: {} as any,
+    };
+
+    const result = await queryAll(mockDb, rawQuery, ItemTable);
+
+    expect(result[0]).toEqual({ name: 'x', meta: { score: 10 }, tags: null });
+  });
+
+  it('returns results as-is without table (backward compat)', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    const rows = [{ name: 'x', meta: '{"score":10}' }];
+    mockStatement.all.mockResolvedValue({ results: rows, success: true, meta: {} });
+
+    const rawQuery = {
+      sql: 'select * from "Item"',
+      parameters: [] as unknown[],
+      query: {} as any,
+    };
+
+    const result = await queryAll(mockDb, rawQuery);
+
+    expect(result[0]).toEqual({ name: 'x', meta: '{"score":10}' });
+  });
+
+  it('passes null JSON columns through unchanged', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    const rows = [{ name: 'x', meta: '{"score":5}', tags: null }];
+    mockStatement.all.mockResolvedValue({ results: rows, success: true, meta: {} });
+
+    const rawQuery = {
+      sql: 'select * from "Item"',
+      parameters: [] as unknown[],
+      query: {} as any,
+    };
+
+    const result = await queryAll(mockDb, rawQuery, ItemTable);
+
+    expect(result[0].tags).toBeNull();
+  });
+});
+
+describe('queryFirst with table (deserialization)', () => {
+  it('deserializes JSON string columns on first row', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    mockStatement.first.mockResolvedValue({ name: 'y', meta: '{"score":99}', tags: null });
+
+    const rawQuery = {
+      sql: 'select * from "Item" limit 1',
+      parameters: [] as unknown[],
+      query: {} as any,
+    };
+
+    const result = await queryFirst(mockDb, rawQuery, ItemTable);
+
+    expect(result).toEqual({ name: 'y', meta: { score: 99 }, tags: null });
+  });
+
+  it('returns null when no row found', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    mockStatement.first.mockResolvedValue(null);
+
+    const rawQuery = {
+      sql: 'select * from "Item" limit 1',
+      parameters: [] as unknown[],
+      query: {} as any,
+    };
+
+    const result = await queryFirst(mockDb, rawQuery, ItemTable);
+
+    expect(result).toBeNull();
   });
 });
