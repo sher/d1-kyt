@@ -16,9 +16,9 @@ function serializeParam(p: unknown): unknown {
 
 function deserializeRow<T>(row: Record<string, unknown>, table: SchemaTable<any, any>): T {
   const result = { ...row };
-  for (const [col, colSchema] of Object.entries(table._columns)) {
+  for (const col of Object.keys(table._columns)) {
     if (col in result && typeof result[col] === 'string') {
-      if (sqlTypeFromSchema(colSchema).isJson) {
+      if (sqlTypeFromSchema(table._columns[col]).isJson) {
         result[col] = JSON.parse(result[col] as string);
       }
     }
