@@ -87,6 +87,8 @@ export interface ForeignKeyChange {
 
 export interface TableChange {
   name: string;
+  prevTable: TableSnapshot;
+  nextTable: TableSnapshot;
   columns: ColumnChange[];
   indexes: IndexChange[];
   triggers: TriggerChange[];
@@ -378,7 +380,7 @@ export function diffSnapshots(prev: SchemaSnapshot, next: SchemaSnapshot): Schem
     }
 
     if (columns.length > 0 || indexes.length > 0 || triggers.length > 0 || foreignKeys.length > 0) {
-      changedTables.push({ name, columns, indexes, triggers, foreignKeys });
+      changedTables.push({ name, prevTable, nextTable, columns, indexes, triggers, foreignKeys });
     }
   }
 
@@ -486,6 +488,55 @@ export function diffToSQL(diff: SchemaDiff): string[] {
   for (const change of diff.changedTables) {
     const handledFkKeys = new Set<string>();
 
+    // Detect dropped columns that need table recreation (PK or unique-index constrained)
+    const droppedCols = change.columns.filter((c) => c.before && !c.after);
+    const constrainedDrops = droppedCols.filter(
+      (col) =>
+        col.before!.primaryKey === true ||
+        change.indexes.some((idx) => idx.before?.unique && idx.before.columns.includes(col.name)),
+    );
+    const needsRecreation = constrainedDrops.length > 0;
+
+    if (needsRecreation) {
+      const { nextTable, prevTable } = change;
+
+      // Comment for each constrained drop
+      for (const col of constrainedDrops) {
+        statements.push(
+          `-- Cannot DROP COLUMN "${col.name}" (constrained); recreate table instead`,
+        );
+      }
+
+      // CREATE TABLE "<name>_new"
+      const newName = `${change.name}_new`;
+      const colDefs = Object.values(nextTable.columns).map(columnToSQL);
+      const fkDefs = Object.values(nextTable.foreignKeys ?? {}).map(foreignKeyConstraintSQL);
+      const allDefs = [...colDefs, ...fkDefs];
+      statements.push(`CREATE TABLE "${newName}" (\n${allDefs.join(',\n')}\n);`);
+
+      if (Object.keys(nextTable.foreignKeys ?? {}).length > 0) hasForeignKeys = true;
+
+      // INSERT surviving columns
+      const droppedColNames = new Set(droppedCols.map((c) => c.name));
+      const survivingCols = Object.keys(prevTable.columns).filter((n) => !droppedColNames.has(n));
+      const colList = survivingCols.map((n) => `"${n}"`).join(', ');
+      statements.push(`INSERT INTO "${newName}" SELECT ${colList} FROM "${change.name}";`);
+
+      // DROP old table and rename new
+      statements.push(`DROP TABLE "${change.name}";`);
+      statements.push(`ALTER TABLE "${newName}" RENAME TO "${change.name}";`);
+
+      // Re-create all indexes from nextTable
+      for (const idx of Object.values(nextTable.indexes)) {
+        statements.push(indexToSQL(change.name, idx));
+      }
+
+      // Re-create all triggers from nextTable
+      for (const trg of Object.values(nextTable.triggers)) {
+        statements.push(triggerToSQL(trg));
+      }
+    }
+
     // Columns
     for (const col of change.columns) {
       if (!col.before && col.after) {
@@ -517,8 +568,10 @@ export function diffToSQL(diff: SchemaDiff): string[] {
 
         statements.push(sql + ';');
       } else if (col.before && !col.after) {
-        // Dropped column
-        statements.push(`ALTER TABLE "${change.name}" DROP COLUMN "${col.name}";`);
+        // Dropped column — skip if handled by table recreation above
+        if (!needsRecreation) {
+          statements.push(`ALTER TABLE "${change.name}" DROP COLUMN "${col.name}";`);
+        }
       } else if (col.before && col.after) {
         // Modified column — SQLite does not support ALTER COLUMN
         statements.push(
@@ -527,29 +580,33 @@ export function diffToSQL(diff: SchemaDiff): string[] {
       }
     }
 
-    // Indexes
-    for (const idx of change.indexes) {
-      if (!idx.before && idx.after) {
-        statements.push(indexToSQL(change.name, idx.after));
-      } else if (idx.before && !idx.after) {
-        statements.push(`DROP INDEX IF EXISTS "${idx.name}";`);
-      } else if (idx.before && idx.after) {
-        // Changed index: drop and recreate
-        statements.push(`DROP INDEX IF EXISTS "${idx.name}";`);
-        statements.push(indexToSQL(change.name, idx.after));
+    // Indexes — skip when recreation already emitted all indexes
+    if (!needsRecreation) {
+      for (const idx of change.indexes) {
+        if (!idx.before && idx.after) {
+          statements.push(indexToSQL(change.name, idx.after));
+        } else if (idx.before && !idx.after) {
+          statements.push(`DROP INDEX IF EXISTS "${idx.name}";`);
+        } else if (idx.before && idx.after) {
+          // Changed index: drop and recreate
+          statements.push(`DROP INDEX IF EXISTS "${idx.name}";`);
+          statements.push(indexToSQL(change.name, idx.after));
+        }
       }
     }
 
-    // Triggers
-    for (const trg of change.triggers) {
-      if (!trg.before && trg.after) {
-        statements.push(triggerToSQL(trg.after));
-      } else if (trg.before && !trg.after) {
-        statements.push(`DROP TRIGGER IF EXISTS "${trg.name}";`);
-      } else if (trg.before && trg.after) {
-        // Changed trigger: drop and recreate
-        statements.push(`DROP TRIGGER IF EXISTS "${trg.name}";`);
-        statements.push(triggerToSQL(trg.after));
+    // Triggers — skip when recreation already emitted all triggers
+    if (!needsRecreation) {
+      for (const trg of change.triggers) {
+        if (!trg.before && trg.after) {
+          statements.push(triggerToSQL(trg.after));
+        } else if (trg.before && !trg.after) {
+          statements.push(`DROP TRIGGER IF EXISTS "${trg.name}";`);
+        } else if (trg.before && trg.after) {
+          // Changed trigger: drop and recreate
+          statements.push(`DROP TRIGGER IF EXISTS "${trg.name}";`);
+          statements.push(triggerToSQL(trg.after));
+        }
       }
     }
 

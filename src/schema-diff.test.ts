@@ -236,6 +236,19 @@ describe('diffSnapshots', () => {
     const dropped = diff.changedTables[0]?.indexes.filter((i) => i.before && !i.after);
     expect(dropped?.length).toBeGreaterThan(0);
   });
+
+  it('includes prevTable and nextTable on changed tables', () => {
+    const v1 = defineTable('diff_refs', { title: v.string() });
+    const v2 = defineTable('diff_refs', { title: v.string(), body: v.optional(v.string()) });
+    const prev = serializeSchema({ t: v1 });
+    const next = serializeSchema({ t: v2 });
+    const diff = diffSnapshots(prev, next);
+    const changed = diff.changedTables[0];
+    expect(changed?.prevTable).toBeDefined();
+    expect(changed?.nextTable).toBeDefined();
+    expect(changed?.prevTable.name).toBe('diff_refs');
+    expect(changed?.nextTable.columns['body']).toBeDefined();
+  });
 });
 
 // ----------------------------------------------------------------------------
@@ -351,6 +364,80 @@ describe('diffToSQL', () => {
     const snap = serializeSchema({ users });
     const diff = diffSnapshots(snap, snap);
     expect(diffToSQL(diff)).toEqual([]);
+  });
+
+  it('dropping a non-constrained column uses ALTER TABLE DROP COLUMN (no recreation)', () => {
+    const v1 = defineTable('sql_drop_plain', { title: v.string(), note: v.optional(v.string()) });
+    const v2 = defineTable('sql_drop_plain', { title: v.string() });
+    const prev = serializeSchema({ t: v1 });
+    const next = serializeSchema({ t: v2 });
+    const sql = diffToSQL(diffSnapshots(prev, next));
+
+    expect(sql.some((s) => s.includes('ALTER TABLE "sql_drop_plain" DROP COLUMN "note"'))).toBe(true);
+    expect(sql.some((s) => s.includes('_new'))).toBe(false);
+    expect(sql.some((s) => s.includes('Cannot DROP COLUMN'))).toBe(false);
+  });
+
+  it('dropping a PK column emits recreation instead of ALTER TABLE DROP COLUMN', () => {
+    const v1 = defineTable('sql_drop_pk', { title: v.string() });
+    const prev = serializeSchema({ t: v1 });
+    // Simulate dropping the 'id' PK column in next snapshot
+    const next = JSON.parse(JSON.stringify(prev)) as SchemaSnapshot;
+    delete next.tables['sql_drop_pk'].columns['id'];
+    const sql = diffToSQL(diffSnapshots(prev, next));
+
+    expect(sql.some((s) => s.includes('Cannot DROP COLUMN "id"'))).toBe(true);
+    expect(sql.some((s) => s.includes('CREATE TABLE "sql_drop_pk_new"'))).toBe(true);
+    expect(sql.some((s) => s.includes('INSERT INTO "sql_drop_pk_new"') && s.includes('FROM "sql_drop_pk"'))).toBe(true);
+    expect(sql.some((s) => s.includes('DROP TABLE "sql_drop_pk"'))).toBe(true);
+    expect(sql.some((s) => s.includes('ALTER TABLE "sql_drop_pk_new" RENAME TO "sql_drop_pk"'))).toBe(true);
+    expect(sql.some((s) => s.includes('ALTER TABLE "sql_drop_pk" DROP COLUMN'))).toBe(false);
+  });
+
+  it('dropping a unique-indexed column emits recreation', () => {
+    const v1 = defineTable('sql_drop_uniq', { email: v.string(), name: v.optional(v.string()) });
+    defineIndex(v1, ['email'], { unique: true });
+    const v2 = defineTable('sql_drop_uniq', { name: v.optional(v.string()) });
+    const prev = serializeSchema({ t: v1 });
+    const next = serializeSchema({ t: v2 });
+    const sql = diffToSQL(diffSnapshots(prev, next));
+
+    expect(sql.some((s) => s.includes('Cannot DROP COLUMN "email"'))).toBe(true);
+    expect(sql.some((s) => s.includes('CREATE TABLE "sql_drop_uniq_new"'))).toBe(true);
+    expect(sql.some((s) => s.includes('DROP TABLE "sql_drop_uniq"'))).toBe(true);
+    expect(sql.some((s) => s.includes('ALTER TABLE "sql_drop_uniq_new" RENAME TO "sql_drop_uniq"'))).toBe(true);
+    expect(sql.some((s) => s.includes('ALTER TABLE "sql_drop_uniq" DROP COLUMN'))).toBe(false);
+  });
+
+  it('recreation: surviving columns are selected in INSERT', () => {
+    const v1 = defineTable('sql_insert_cols', { email: v.string(), name: v.optional(v.string()) });
+    defineIndex(v1, ['email'], { unique: true });
+    const v2 = defineTable('sql_insert_cols', { name: v.optional(v.string()) });
+    const prev = serializeSchema({ t: v1 });
+    const next = serializeSchema({ t: v2 });
+    const sql = diffToSQL(diffSnapshots(prev, next));
+
+    const insertStmt = sql.find((s) => s.includes('INSERT INTO "sql_insert_cols_new"'));
+    expect(insertStmt).toBeDefined();
+    // 'email' is dropped — should NOT appear in SELECT
+    expect(insertStmt).not.toContain('"email"');
+    // surviving columns should be selected
+    expect(insertStmt).toContain('"id"');
+    expect(insertStmt).toContain('"name"');
+  });
+
+  it('recreation: triggers are re-emitted; no duplicate trigger create', () => {
+    const v1 = defineTable('sql_rec_trg', { email: v.string(), name: v.optional(v.string()) });
+    defineIndex(v1, ['email'], { unique: true });
+    const v2 = defineTable('sql_rec_trg', { name: v.optional(v.string()) });
+    const prev = serializeSchema({ t: v1 });
+    const next = serializeSchema({ t: v2 });
+    const sql = diffToSQL(diffSnapshots(prev, next));
+
+    const triggerStatements = sql.filter((s) => s.includes('CREATE TRIGGER'));
+    // updatedAt trigger should appear exactly once
+    expect(triggerStatements.length).toBe(1);
+    expect(triggerStatements[0]).toContain('sql_rec_trg');
   });
 });
 
@@ -664,6 +751,99 @@ describe('SQLite integration: CREATE TABLE from schema', () => {
     expect(
       sql.some((s) => s.includes('ADD COLUMN "deptId"') && s.includes('REFERENCES "fk_depts"("id")')),
     ).toBe(true);
+  });
+
+  it('recreate table when dropping a unique-indexed column: data preserved, column removed', () => {
+    // v1: table with a unique-indexed column
+    const v1 = defineTable('rec_uniq_col', { email: v.string(), name: v.optional(v.string()) });
+    defineIndex(v1, ['email'], { unique: true });
+    const snap1 = serializeSchema({ t: v1 });
+    const sql1 = diffToSQL(diffSnapshots({ version: 1, tables: {} }, snap1));
+
+    const { db, close } = applySQL(sql1);
+    closeDb = close;
+
+    db.exec(`INSERT INTO "rec_uniq_col" ("email","name") VALUES ('a@x.com','Alice')`);
+    db.exec(`INSERT INTO "rec_uniq_col" ("email","name") VALUES ('b@x.com','Bob')`);
+
+    // v2: drop the unique-indexed column
+    const v2 = defineTable('rec_uniq_col', { name: v.optional(v.string()) });
+    const snap2 = serializeSchema({ t: v2 });
+    const sql2 = diffToSQL(diffSnapshots(snap1, snap2)).filter((s) => !s.startsWith('--'));
+    for (const stmt of sql2) {
+      db.exec(stmt);
+    }
+
+    // Column 'email' should be gone
+    const cols = db.prepare(`PRAGMA table_info("rec_uniq_col")`).all() as { name: string }[];
+    expect(cols.some((c) => c.name === 'email')).toBe(false);
+    expect(cols.some((c) => c.name === 'name')).toBe(true);
+
+    // Data from surviving columns should be preserved
+    const rows = db.prepare('SELECT name FROM "rec_uniq_col" ORDER BY id').all() as Record<string, unknown>[];
+    expect(rows).toHaveLength(2);
+    expect(rows[0]['name']).toBe('Alice');
+    expect(rows[1]['name']).toBe('Bob');
+  });
+
+  it('recreate table when dropping a unique-indexed column: updatedAt trigger is restored', () => {
+    const v1 = defineTable('rec_trg_restore', { email: v.string(), name: v.optional(v.string()) });
+    defineIndex(v1, ['email'], { unique: true });
+    const snap1 = serializeSchema({ t: v1 });
+    const sql1 = diffToSQL(diffSnapshots({ version: 1, tables: {} }, snap1));
+
+    const { db, close } = applySQL(sql1);
+    closeDb = close;
+
+    db.exec(`INSERT INTO "rec_trg_restore" ("email","name") VALUES ('x@x.com','X')`);
+
+    const v2 = defineTable('rec_trg_restore', { name: v.optional(v.string()) });
+    const snap2 = serializeSchema({ t: v2 });
+    const sql2 = diffToSQL(diffSnapshots(snap1, snap2)).filter((s) => !s.startsWith('--'));
+    for (const stmt of sql2) {
+      db.exec(stmt);
+    }
+
+    // Trigger should still be registered after recreation
+    const triggers = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='rec_trg_restore'`)
+      .all() as { name: string }[];
+    expect(triggers.some((trg) => trg.name.includes('rec_trg_restore'))).toBe(true);
+  });
+
+  it('recreate table preserves remaining indexes', () => {
+    const v1 = defineTable('rec_idx_keep', {
+      email: v.string(),
+      role: v.string(),
+    });
+    // unique index on email (will be dropped with the column)
+    defineIndex(v1, ['email'], { unique: true });
+    // regular index on role (should survive)
+    defineIndex(v1, ['role'], { unique: false });
+    const snap1 = serializeSchema({ t: v1 });
+    const sql1 = diffToSQL(diffSnapshots({ version: 1, tables: {} }, snap1));
+
+    const { db, close } = applySQL(sql1);
+    closeDb = close;
+
+    db.exec(`INSERT INTO "rec_idx_keep" ("email","role") VALUES ('a@x.com','admin')`);
+
+    // v2: drop the unique-indexed column
+    const v2 = defineTable('rec_idx_keep', { role: v.string() });
+    defineIndex(v2, ['role'], { unique: false });
+    const snap2 = serializeSchema({ t: v2 });
+    const sql2 = diffToSQL(diffSnapshots(snap1, snap2)).filter((s) => !s.startsWith('--'));
+    for (const stmt of sql2) {
+      db.exec(stmt);
+    }
+
+    // The role index should exist
+    const indexes = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='rec_idx_keep'`)
+      .all() as { name: string }[];
+    expect(indexes.some((i) => i.name.includes('role'))).toBe(true);
+    // The email index should not exist
+    expect(indexes.some((i) => i.name.includes('email'))).toBe(false);
   });
 
   it('foreign key: NOT NULL FK add column emits warning', () => {
