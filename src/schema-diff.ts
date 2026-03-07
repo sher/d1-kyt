@@ -467,8 +467,11 @@ function tableToCreateSQL(table: TableSnapshot): string[] {
  * - Modified column → warning comment (SQLite cannot ALTER COLUMN)
  * - Added/dropped index → CREATE INDEX / DROP INDEX
  * - Added/dropped trigger → CREATE TRIGGER / DROP TRIGGER
+ *
+ * @param chunkSize Rows per INSERT chunk during table recreation (default 5000).
+ *   Set to 0 to emit a single INSERT instead. Increase if you hit D1 timeouts.
  */
-export function diffToSQL(diff: SchemaDiff): string[] {
+export function diffToSQL(diff: SchemaDiff, chunkSize = 5000): string[] {
   const statements: string[] = [];
   let hasForeignKeys = false;
 
@@ -500,10 +503,15 @@ export function diffToSQL(diff: SchemaDiff): string[] {
     if (needsRecreation) {
       const { nextTable, prevTable } = change;
 
-      // Comment for each constrained drop
+      // Warning + comment for each constrained drop
+      statements.push(
+        `-- WARNING: table "${change.name}" must be recreated (constrained column drop).` +
+          ` Data is copied in ${chunkSize > 0 ? `chunks of ${chunkSize} rows` : 'a single statement'}.` +
+          ` Large tables may exceed D1 execution limits — increase chunk size or split manually if needed.`,
+      );
       for (const col of constrainedDrops) {
         statements.push(
-          `-- Cannot DROP COLUMN "${col.name}" (constrained); recreate table instead`,
+          `-- Cannot DROP COLUMN "${col.name}" (PRIMARY KEY or UNIQUE constraint); recreate table instead`,
         );
       }
 
@@ -516,11 +524,26 @@ export function diffToSQL(diff: SchemaDiff): string[] {
 
       if (Object.keys(nextTable.foreignKeys ?? {}).length > 0) hasForeignKeys = true;
 
-      // INSERT surviving columns
+      // INSERT surviving columns — chunked by rowid range to stay within D1 limits
       const droppedColNames = new Set(droppedCols.map((c) => c.name));
       const survivingCols = Object.keys(prevTable.columns).filter((n) => !droppedColNames.has(n));
       const colList = survivingCols.map((n) => `"${n}"`).join(', ');
-      statements.push(`INSERT INTO "${newName}" SELECT ${colList} FROM "${change.name}";`);
+
+      if (chunkSize <= 0) {
+        statements.push(`INSERT INTO "${newName}" SELECT ${colList} FROM "${change.name}";`);
+      } else {
+        const CHUNKS = 10;
+        for (let i = 0; i < CHUNKS; i++) {
+          const lo = i * chunkSize + 1;
+          const hi = (i + 1) * chunkSize;
+          statements.push(
+            `INSERT INTO "${newName}" SELECT ${colList} FROM "${change.name}" WHERE rowid BETWEEN ${lo} AND ${hi};`,
+          );
+        }
+        statements.push(
+          `-- If "${change.name}" has more than ${CHUNKS * chunkSize} rows, add more INSERT statements following the same pattern (BETWEEN ${CHUNKS * chunkSize + 1} AND ${(CHUNKS + 1) * chunkSize}, etc.)`,
+        );
+      }
 
       // DROP old table and rename new
       statements.push(`DROP TABLE "${change.name}";`);

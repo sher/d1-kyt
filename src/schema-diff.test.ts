@@ -387,6 +387,7 @@ describe('diffToSQL', () => {
     const sql = diffToSQL(diffSnapshots(prev, next));
 
     expect(sql.some((s) => s.includes('Cannot DROP COLUMN "id"'))).toBe(true);
+    expect(sql.some((s) => s.includes('WARNING') && s.includes('recreated'))).toBe(true);
     expect(sql.some((s) => s.includes('CREATE TABLE "sql_drop_pk_new"'))).toBe(true);
     expect(sql.some((s) => s.includes('INSERT INTO "sql_drop_pk_new"') && s.includes('FROM "sql_drop_pk"'))).toBe(true);
     expect(sql.some((s) => s.includes('DROP TABLE "sql_drop_pk"'))).toBe(true);
@@ -409,7 +410,39 @@ describe('diffToSQL', () => {
     expect(sql.some((s) => s.includes('ALTER TABLE "sql_drop_uniq" DROP COLUMN'))).toBe(false);
   });
 
-  it('recreation: surviving columns are selected in INSERT', () => {
+  it('recreation: generates chunked INSERT statements by rowid range', () => {
+    const v1 = defineTable('sql_chunks', { email: v.string(), name: v.optional(v.string()) });
+    defineIndex(v1, ['email'], { unique: true });
+    const v2 = defineTable('sql_chunks', { name: v.optional(v.string()) });
+    const prev = serializeSchema({ t: v1 });
+    const next = serializeSchema({ t: v2 });
+    const sql = diffToSQL(diffSnapshots(prev, next), 5000);
+
+    const inserts = sql.filter((s) => s.includes('INSERT INTO "sql_chunks_new"'));
+    // Default 10 chunks
+    expect(inserts.length).toBe(10);
+    // First chunk covers rowid 1–5000
+    expect(inserts[0]).toContain('WHERE rowid BETWEEN 1 AND 5000');
+    // Second chunk covers 5001–10000
+    expect(inserts[1]).toContain('WHERE rowid BETWEEN 5001 AND 10000');
+    // Trailing comment about extending
+    expect(sql.some((s) => s.includes('more than 50000 rows') || s.includes('more than 50,000 rows') || (s.includes('more') && s.includes('50000')))).toBe(true);
+  });
+
+  it('recreation: chunkSize=0 emits single INSERT', () => {
+    const v1 = defineTable('sql_nochunk', { email: v.string(), name: v.optional(v.string()) });
+    defineIndex(v1, ['email'], { unique: true });
+    const v2 = defineTable('sql_nochunk', { name: v.optional(v.string()) });
+    const prev = serializeSchema({ t: v1 });
+    const next = serializeSchema({ t: v2 });
+    const sql = diffToSQL(diffSnapshots(prev, next), 0);
+
+    const inserts = sql.filter((s) => s.includes('INSERT INTO "sql_nochunk_new"'));
+    expect(inserts.length).toBe(1);
+    expect(inserts[0]).not.toContain('WHERE rowid');
+  });
+
+  it('recreation: surviving columns are selected in all INSERT chunks', () => {
     const v1 = defineTable('sql_insert_cols', { email: v.string(), name: v.optional(v.string()) });
     defineIndex(v1, ['email'], { unique: true });
     const v2 = defineTable('sql_insert_cols', { name: v.optional(v.string()) });
@@ -417,13 +450,15 @@ describe('diffToSQL', () => {
     const next = serializeSchema({ t: v2 });
     const sql = diffToSQL(diffSnapshots(prev, next));
 
-    const insertStmt = sql.find((s) => s.includes('INSERT INTO "sql_insert_cols_new"'));
-    expect(insertStmt).toBeDefined();
-    // 'email' is dropped — should NOT appear in SELECT
-    expect(insertStmt).not.toContain('"email"');
-    // surviving columns should be selected
-    expect(insertStmt).toContain('"id"');
-    expect(insertStmt).toContain('"name"');
+    const inserts = sql.filter((s) => s.includes('INSERT INTO "sql_insert_cols_new"'));
+    expect(inserts.length).toBeGreaterThan(0);
+    for (const stmt of inserts) {
+      // 'email' is dropped — should NOT appear in SELECT
+      expect(stmt).not.toContain('"email"');
+      // surviving columns should be selected
+      expect(stmt).toContain('"id"');
+      expect(stmt).toContain('"name"');
+    }
   });
 
   it('recreation: triggers are re-emitted; no duplicate trigger create', () => {
