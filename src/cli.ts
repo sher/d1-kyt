@@ -3,14 +3,14 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-const VERSION = '0.5.3';
+const VERSION = '0.7.0';
 
 const HELP = `
 d1-kyt v${VERSION} - Opinionated Cloudflare D1 + Kysely toolkit
 
 Usage:
   d1-kyt init [--dir <dir>]
-  d1-kyt schema:diff <name> [--dir <dir>] [--schema <path>]
+  d1-kyt schema:diff [name] [--dir <dir>] [--schema <path>]
 
 Commands:
   init              Scaffold config, schema template, and snapshot in <dir>
@@ -25,15 +25,16 @@ Options:
 
 Examples:
   d1-kyt init                        # auto-detect dir (db/ by default)
-  d1-kyt init --dir db               # use db/config.ts, db/schema.ts, db/schema.snapshot.jsonc
+  d1-kyt init --dir db               # use db/config.ts, db/schema.ts, db/schema.json
   d1-kyt schema:diff create_users
+  d1-kyt schema:diff                 # auto-derives name from diff
   d1-kyt schema:diff add_idx --schema src/schema.ts
 `;
 
 import type { D1KytConfig } from './config.js';
 import { generateMigrationPrefix } from './naming.js';
 import { serializeSchema, diffSnapshots, diffToSQL } from './schema-diff.js';
-import type { SchemaSnapshot } from './schema-diff.js';
+import type { SchemaSnapshot, SchemaDiff } from './schema-diff.js';
 
 // ----------------------------------------------------------------------------
 // Wrangler config
@@ -74,7 +75,7 @@ function readWranglerConfig(): WranglerD1Config | null {
 // Dir resolution
 //
 // The "dir" is the single folder that holds config.ts, schema.ts, and
-// schema.snapshot.jsonc.  Resolution order:
+// schema.json.  Resolution order:
 //   1. --dir <path> flag (explicit)
 //   2. Auto-detect an existing config: first d1-kyt/, then parent of
 //      wrangler migrationsDir (if it is not the project root)
@@ -84,7 +85,23 @@ function readWranglerConfig(): WranglerD1Config | null {
 
 const CONFIG_FILE = 'config.ts';
 const SCHEMA_FILE = 'schema.ts';
-const SNAPSHOT_FILE = 'schema.snapshot.jsonc';
+const SNAPSHOT_FILE = 'schema.json';
+const SCHEMA_SQL_FILE = 'schema.sql';
+
+function toSnake(s: string): string {
+  return s.replace(/([a-z])([A-Z])/g, '$1_$2').replace(/[\s-]+/g, '_').toLowerCase();
+}
+
+function generateDiffName(diff: SchemaDiff): string {
+  const parts = [
+    ...diff.addedTables.map((t) => `create_${toSnake(t.name)}`),
+    ...diff.droppedTables.map((t) => `drop_${toSnake(t.name)}`),
+    ...diff.changedTables.map((t) => `alter_${toSnake(t.name)}`),
+  ];
+  if (parts.length === 0) return 'update_schema';
+  if (parts.length <= 3) return parts.join('_and_');
+  return 'update_schema';
+}
 
 /** Return the absolute path to <dir>/config.ts, or null if no config found. */
 function findExistingDir(dirFlag?: string): string | null {
@@ -181,7 +198,7 @@ function cmdInit(dirFlag?: string): void {
     console.log(`Skipped: ${relDir}/${SCHEMA_FILE} (already exists)`);
   }
 
-  // schema.snapshot.jsonc
+  // schema.json
   const snapshotPath = join(dir, SNAPSHOT_FILE);
   if (!existsSync(snapshotPath)) {
     const empty: SchemaSnapshot = { version: 1, tables: {} };
@@ -198,7 +215,7 @@ function cmdInit(dirFlag?: string): void {
 }
 
 async function cmdSchemaDiff(
-  name: string,
+  name: string | undefined,
   dirFlag?: string,
   schemaFlag?: string,
 ): Promise<void> {
@@ -239,15 +256,21 @@ async function cmdSchemaDiff(
 
   const snapshotPath = join(dir, SNAPSHOT_FILE);
   let prevSnapshot: SchemaSnapshot = { version: 1, tables: {} };
+  const legacyPath = join(dir, 'schema.snapshot.jsonc');
   if (existsSync(snapshotPath)) {
     try {
-      // Strip JSONC-style comments before parsing
-      const raw = readFileSync(snapshotPath, 'utf-8')
+      prevSnapshot = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as SchemaSnapshot;
+    } catch {
+      console.warn(`Warning: Could not parse ${SNAPSHOT_FILE}; treating as empty.`);
+    }
+  } else if (existsSync(legacyPath)) {
+    try {
+      const raw = readFileSync(legacyPath, 'utf-8')
         .replace(/\/\/.*$/gm, '')
         .replace(/\/\*[\s\S]*?\*\//g, '');
       prevSnapshot = JSON.parse(raw) as SchemaSnapshot;
     } catch {
-      console.warn(`Warning: Could not parse ${SNAPSHOT_FILE}; treating as empty.`);
+      console.warn(`Warning: Could not parse legacy snapshot; treating as empty.`);
     }
   }
 
@@ -267,10 +290,7 @@ async function cmdSchemaDiff(
   const strategy = config.namingStrategy ?? 'sequential';
   const prefix = generateMigrationPrefix(strategy, existingFiles);
 
-  const snakeName = name
-    .replace(/([a-z])([A-Z])/g, '$1_$2')
-    .replace(/[\s-]+/g, '_')
-    .toLowerCase();
+  const snakeName = name ? toSnake(name) : generateDiffName(diff);
 
   const filename = `${prefix}_${snakeName}.sql`;
   const sql =
@@ -285,6 +305,15 @@ async function cmdSchemaDiff(
   writeFileSync(snapshotPath, JSON.stringify(currentSnapshot, null, 2) + '\n');
   const relDir = dir.replace(process.cwd() + '/', '');
   console.log(`Updated: ${relDir}/${SNAPSHOT_FILE}`);
+
+  // Write schema.sql (full DDL from empty → current)
+  const fullStatements = diffToSQL(diffSnapshots({ version: 1, tables: {} }, currentSnapshot));
+  const schemaSql =
+    `-- Generated by d1-kyt schema:diff\n` +
+    `-- Full schema as of: ${new Date().toISOString()}\n\n` +
+    `${fullStatements.join('\n\n')}\n`;
+  writeFileSync(join(dir, SCHEMA_SQL_FILE), schemaSql);
+  console.log(`Updated: ${relDir}/${SCHEMA_SQL_FILE}`);
 
   console.log(`\nRun: wrangler d1 migrations apply <db> --local`);
 }
@@ -322,12 +351,8 @@ async function main(): Promise<void> {
       break;
 
     case 'schema:diff': {
-      const name = args[1];
-      if (!name || name.startsWith('--')) {
-        console.error('Error: Migration name required');
-        console.error('Usage: d1-kyt schema:diff <name> [--dir <dir>] [--schema <path>]');
-        process.exit(1);
-      }
+      const maybeName = args[1];
+      const name = maybeName && !maybeName.startsWith('--') ? maybeName : undefined;
       await cmdSchemaDiff(name, flagValue(args, '--dir'), flagValue(args, '--schema'));
       break;
     }
