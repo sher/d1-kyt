@@ -1,6 +1,6 @@
 {
   "name": "d1-kyt",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "description": "Opinionated Cloudflare D1 + Kysely toolkit",
   "type": "module",
   "main": "dist/index.js",
@@ -13,17 +13,9 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./schema": {
-      "types": "./dist/schema.d.ts",
-      "import": "./dist/schema.js"
-    },
     "./migrate": {
       "types": "./dist/migrate.d.ts",
       "import": "./dist/migrate.js"
-    },
-    "./config": {
-      "types": "./dist/config.d.ts",
-      "import": "./dist/config.js"
     }
   },
   "files": [
