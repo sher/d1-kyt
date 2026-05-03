@@ -5,6 +5,7 @@
 
 import type { SchemaTable, ColumnTypeInfo, TableOptions, SchemaForeignKey } from './schema.js';
 import { sqlTypeFromSchema } from './schema.js';
+import { D1_MAX_COLUMNS, D1_MAX_SQL_LENGTH } from './validators.js';
 
 // ----------------------------------------------------------------------------
 // Snapshot Types
@@ -478,6 +479,12 @@ export function diffToSQL(diff: SchemaDiff, chunkSize = 5000): string[] {
   // New tables
   for (const table of diff.addedTables) {
     if (Object.keys(table.foreignKeys ?? {}).length > 0) hasForeignKeys = true;
+    const colCount = Object.keys(table.columns).length;
+    if (colCount > D1_MAX_COLUMNS) {
+      statements.push(
+        `-- WARNING: table "${table.name}" has ${colCount} columns (D1 limit: ${D1_MAX_COLUMNS})`,
+      );
+    }
     statements.push(...tableToCreateSQL(table));
   }
 
@@ -648,6 +655,16 @@ export function diffToSQL(diff: SchemaDiff, chunkSize = 5000): string[] {
     statements.unshift('PRAGMA foreign_keys = ON;');
   }
 
-  return statements;
+  // Warn about any statement that exceeds the D1 SQL length limit
+  const result: string[] = [];
+  for (const stmt of statements) {
+    if (!stmt.startsWith('--') && stmt.length > D1_MAX_SQL_LENGTH) {
+      result.push(
+        `-- WARNING: statement below is ${stmt.length} characters (D1 limit: ${D1_MAX_SQL_LENGTH}); apply manually or split further`,
+      );
+    }
+    result.push(stmt);
+  }
+  return result;
 }
 

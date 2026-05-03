@@ -23,3 +23,8 @@ export type {
 // config
 export { defineConfig } from './config.js';
 export type { D1KytConfig, NamingStrategy } from './config.js';
+
+// validators
+export { d1MaxParams, d1MaxSqlLength, D1_VALIDATORS, runValidators } from './validators.js';
+export { D1_MAX_BOUND_PARAMETERS, D1_MAX_SQL_LENGTH, D1_MAX_COLUMNS } from './validators.js';
+export type { QueryValidator } from './validators.js';

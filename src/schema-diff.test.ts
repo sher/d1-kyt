@@ -897,3 +897,67 @@ describe('SQLite integration: CREATE TABLE from schema', () => {
     expect(sql.some((s) => s.includes('-- WARNING') && s.includes('NOT NULL') && s.includes('orgId'))).toBe(true);
   });
 });
+
+// ----------------------------------------------------------------------------
+// D1 limit warnings
+// ----------------------------------------------------------------------------
+
+describe('D1 limit warnings', () => {
+  describe('column count', () => {
+    it('emits a warning comment when a new table exceeds 100 columns', () => {
+      const cols = Object.fromEntries(
+        Array.from({ length: 98 }, (_, i) => [`col${i}`, v.string()]),
+      );
+      // 98 user cols + id + createdAt + updatedAt = 101 total
+      const table = defineTable('wide_table', cols);
+      const prev = serializeSchema({});
+      const next = serializeSchema({ wide_table: table });
+      const sql = diffToSQL(diffSnapshots(prev, next));
+
+      expect(sql.some((s) => s.includes('-- WARNING') && s.includes('wide_table') && s.includes('101') && s.includes('100'))).toBe(true);
+    });
+
+    it('does not warn when table has exactly 100 columns', () => {
+      const cols = Object.fromEntries(
+        Array.from({ length: 97 }, (_, i) => [`col${i}`, v.string()]),
+      );
+      // 97 user cols + id + createdAt + updatedAt = 100 total
+      const table = defineTable('ok_table', cols);
+      const prev = serializeSchema({});
+      const next = serializeSchema({ ok_table: table });
+      const sql = diffToSQL(diffSnapshots(prev, next));
+
+      expect(sql.some((s) => s.includes('-- WARNING') && s.includes('ok_table') && s.includes('columns'))).toBe(false);
+    });
+  });
+
+  describe('SQL statement length', () => {
+    it('emits a warning comment before any generated statement exceeding 100KB', () => {
+      // Build a table with a very long name and many columns to exceed 100KB in CREATE TABLE
+      const longName = 'c'.repeat(200);
+      const cols = Object.fromEntries(
+        Array.from({ length: 97 }, (_, i) => [`${'col'.padEnd(50, `${i}`)}`, v.string()]),
+      );
+      const table = defineTable(longName, cols);
+      const prev = serializeSchema({});
+      const next = serializeSchema({ [longName]: table });
+      const sql = diffToSQL(diffSnapshots(prev, next));
+
+      // If any statement is over 100KB, it should be preceded by a warning
+      const longStatements = sql.filter((s) => !s.startsWith('--') && s.length > 100_000);
+      for (const stmt of longStatements) {
+        const idx = sql.indexOf(stmt);
+        expect(sql[idx - 1]).toMatch(/-- WARNING.*characters.*D1 limit/);
+      }
+    });
+
+    it('does not emit length warnings for normal-sized statements', () => {
+      const table = defineTable('normal', { name: v.string() });
+      const prev = serializeSchema({});
+      const next = serializeSchema({ normal: table });
+      const sql = diffToSQL(diffSnapshots(prev, next));
+
+      expect(sql.some((s) => s.includes('characters') && s.includes('D1 limit'))).toBe(false);
+    });
+  });
+});

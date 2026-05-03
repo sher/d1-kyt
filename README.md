@@ -1,10 +1,31 @@
 # d1-kyt
 
-Opinionated [Cloudflare D1](https://developers.cloudflare.com/d1/) + [Kysely](https://kysely.dev/) toolkit.
+Type-safe [Cloudflare D1](https://developers.cloudflare.com/d1/) toolkit built on [Kysely](https://kysely.dev/) and [Valibot](https://valibot.dev/). Define your schema once in Valibot — get SQL migrations and fully-typed queries with no code generation.
 
-**ky**(sely) + **t**(oolkit) = **kyt**
+```typescript
+import { defineTable, InferDB, createQueryBuilder } from 'd1-kyt';
+import { queryAll, queryFirst, queryRun } from 'd1-kyt';
+import * as v from 'valibot';
 
-> **Not an ORM.** Thin wrapper with helpers that relies on Kysely's type inference and Valibot schemas. No magic, no runtime overhead.
+export const posts = defineTable('posts', {
+  title:      v.string(),
+  published:  v.boolean(),
+  views:      v.pipe(v.number(), v.integer()),
+  categoryId: v.optional(v.pipe(v.number(), v.integer())),
+  meta:       v.object({ og: v.string() }),        // stored as JSON
+}, {
+  foreignKeys: [{ columns: ['categoryId'], references: categories, onDelete: 'CASCADE' }],
+  indexes: [{ columns: ['title'], unique: true }],
+});
+
+export type DB = InferDB<{ posts: typeof posts }>;
+export const db = createQueryBuilder<DB>();
+
+// Type-safe queries
+const all  = await queryAll(env.DB, db.selectFrom('posts').selectAll().compile(), posts);
+const one  = await queryFirst(env.DB, db.selectFrom('posts').where('id', '=', 1).selectAll().compile(), posts);
+const done = await queryRun(env.DB, db.deleteFrom('posts').where('id', '=', 1).compile());
+```
 
 ## Install
 
@@ -15,81 +36,44 @@ npm install d1-kyt kysely valibot
 ## Workflow
 
 ```
-schema.ts  →  schema:diff  →  .sql migration  →  wrangler apply  →  types from schema
+schema.ts  →  schema:diff  →  .sql migration  →  wrangler apply  →  typed queries
 ```
 
-1. Define your schema with Valibot types in `schema.ts`
+1. Define tables with Valibot types in `schema.ts`
 2. Run `d1-kyt schema:diff <name>` — diffs against a snapshot, writes a `.sql` migration
 3. Apply with `wrangler d1 migrations apply <db> --local`
-4. Use `$inferSelect` / `$inferInsert` from your schema for type-safe queries
-
-No code generation step required — types come directly from the schema file.
+4. Use `$inferSelect` / `$inferInsert` from your schema for typed queries
 
 ---
 
 ## Quick start
 
 ```bash
-# In your Cloudflare Workers project:
-d1-kyt init
-
-# Edit the generated schema file, then:
-d1-kyt schema:diff create_users
-
-# Apply to local D1:
-wrangler d1 migrations apply <db-name> --local
+d1-kyt init                              # scaffold config + schema in db/
+d1-kyt schema:diff create_posts          # generates db/migrations/0001_create_posts.sql
+wrangler d1 migrations apply <db> --local
 ```
-
-`init` auto-detects the right directory. Defaults to `db/`. If your wrangler config has a `migrations_dir` with a parent folder (e.g. `src/migrations/`), it uses that parent instead.
 
 ---
 
 ## Schema
 
-```typescript
-// db/schema.ts
-import { defineTable, defineIndex, defineTrigger, type InferDB } from 'd1-kyt/schema';
-import { createQueryBuilder } from 'd1-kyt';
-import * as v from 'valibot';
-
-export const users = defineTable('users', {
-  email:  v.string(),                                    // TEXT NOT NULL
-  name:   v.optional(v.string()),                        // TEXT (nullable)
-  age:    v.optional(v.pipe(v.number(), v.integer())),   // INTEGER (nullable)
-  prefs:  v.optional(v.object({ theme: v.string() })),   // TEXT JSON (nullable)
-  role:   v.optional(v.string(), 'user'),                // TEXT DEFAULT 'user'
-});
-
-export const usersEmailIdx = defineIndex(users, ['email'], { unique: true });
-
-export const auditTrigger = defineTrigger('users_audit_trg', {
-  timing: 'AFTER', event: 'INSERT', on: users,
-  body: `INSERT INTO audit (action, at) VALUES ('insert', datetime('now'));`,
-});
-
-export type DB = InferDB<{ users: typeof users }>;
-
-// Compile-only Kysely query builder — stateless, no connection held.
-// Use with queryAll/queryFirst/queryRun to execute against D1.
-export const db = createQueryBuilder<DB>();
-```
-
 ### Valibot → SQL type mapping
 
-| Valibot schema | SQL type | Nullable |
-|---|---|---|
-| `v.string()` | TEXT | NOT NULL |
-| `v.number()` | REAL | NOT NULL |
-| `v.pipe(v.number(), v.integer(), ...)` | INTEGER | NOT NULL |
-| `v.boolean()` | INTEGER | NOT NULL |
-| `v.object({...})` or `v.array(...)` | TEXT (JSON) | NOT NULL |
-| `v.optional(X)` | type of X | NULL |
-| `v.nullable(X)` | type of X | NULL |
-| `v.optional(X, defaultVal)` | type of X + DEFAULT | NULL |
+| Valibot | SQL | Notes |
+|---------|-----|-------|
+| `v.string()` | TEXT NOT NULL | |
+| `v.number()` | REAL NOT NULL | |
+| `v.pipe(v.number(), v.integer())` | INTEGER NOT NULL | |
+| `v.boolean()` | INTEGER NOT NULL | stored as 0/1 |
+| `v.object({...})` / `v.array(...)` | TEXT NOT NULL | JSON serialized |
+| `v.optional(X)` | nullable | |
+| `v.nullable(X)` | nullable | |
+| `v.optional(X, default)` | DEFAULT val | |
 
 ### Auto columns
 
-Every table gets `id`, `createdAt`, `updatedAt` by default, plus an `AFTER UPDATE` trigger for `updatedAt`. Control via options:
+Every table gets `id` (INTEGER PRIMARY KEY AUTOINCREMENT), `createdAt` (TEXT), and `updatedAt` (TEXT) with an `AFTER UPDATE` trigger. All configurable:
 
 ```typescript
 // Disable everything
@@ -97,7 +81,7 @@ defineTable('events', { uuid: v.string() }, {
   primaryKey: false, createdAt: false, updatedAt: false,
 })
 
-// Custom names (snake_case)
+// Custom names
 defineTable('users', { email: v.string() }, {
   primaryKeyColumn: 'user_id',
   createdAtColumn: 'created_at',
@@ -107,42 +91,55 @@ defineTable('users', { email: v.string() }, {
 
 ---
 
+## Type inference
+
+```typescript
+type PostRow = typeof posts.$inferSelect;
+// { id: number; title: string; published: boolean; views: number; ... }
+
+type NewPost = typeof posts.$inferInsert;
+// { title: string; published: boolean; views: number; id?: number; ... }
+```
+
+---
+
+## Foreign keys
+
+```typescript
+export const categories = defineTable('categories', { name: v.string() });
+
+export const posts = defineTable('posts', {
+  title:      v.string(),
+  categoryId: v.pipe(v.number(), v.integer()),
+}, {
+  foreignKeys: [{ columns: ['categoryId'], references: categories, onDelete: 'CASCADE' }],
+});
+```
+
+`PRAGMA foreign_keys = ON` is automatically prepended to any migration that includes FK constraints.
+
+Adding a FK column to an existing table requires a nullable column (SQLite limitation):
+
+```typescript
+deptId: v.optional(v.pipe(v.number(), v.integer()))  // ✓ nullable allows inline REFERENCES
+```
+
+---
+
 ## CLI
 
 ```bash
-d1-kyt init [--dir <dir>]                          # scaffold config + schema template
-d1-kyt schema:diff <name> [--dir <dir>]            # diff schema → write .sql migration
-d1-kyt schema:diff <name> --schema <path>          # use a custom schema file path
+d1-kyt init [--dir <dir>]
+d1-kyt schema:diff <name> [--dir <dir>] [--schema <path>]
 ```
 
-### `init`
-
-Creates (skips if already exists):
-- `<dir>/config.ts` — migrationsDir + namingStrategy
-- `<dir>/schema.ts` — schema template to fill in
-- `<dir>/schema.snapshot.jsonc` — diff baseline (**commit this to git**)
-
-Directory resolution:
-1. `--dir <path>` if provided
-2. `db/` if it contains a `config.ts` (default)
-3. `d1-kyt/` if it contains a `config.ts` (legacy)
-4. Parent of wrangler `migrations_dir` if not the project root
-
-### `schema:diff <name>`
-
-Reads your `schema.ts`, diffs against `schema.snapshot.jsonc`, writes a numbered `.sql` file to your `migrationsDir`, and updates the snapshot. **Commit the `.sql` and the snapshot together** — they are the source of truth for migration history.
-
-```bash
-d1-kyt schema:diff create_users          # generates 0001_create_users.sql
-d1-kyt schema:diff add_email_index       # generates 0002_add_email_index.sql
-d1-kyt schema:diff --dir db add_posts    # use db/config.ts, db/schema.ts
-```
+**Always commit `schema.json` alongside each `.sql` migration** — it is the diff baseline.
 
 ### Config
 
 ```typescript
-// db/config.ts  (or d1-kyt/config.ts)
-import { defineConfig } from 'd1-kyt/config';
+// db/config.ts
+import { defineConfig } from 'd1-kyt';
 
 export default defineConfig({
   migrationsDir: 'db/migrations',
@@ -152,175 +149,61 @@ export default defineConfig({
 
 ---
 
-## Type inference
+## D1 limits
 
-Types come directly from your schema — no code generation step required:
+d1-kyt enforces D1's hard limits at runtime and emits warnings in generated migrations:
 
-```typescript
-import { users } from './db/schema';
+| Limit | Value |
+|-------|-------|
+| Bound parameters per query | 100 |
+| SQL statement length | 100,000 chars |
+| Columns per table | 100 (warning in migration) |
 
-// Full row returned by SELECT
-type UserRow = typeof users.$inferSelect;
-// { id: number; email: string; name: string | undefined; age: number | undefined;
-//   prefs: { theme: string } | undefined; role: string | undefined;
-//   createdAt: string; updatedAt: string }
-
-// Input for INSERT
-type NewUser = typeof users.$inferInsert;
-// { email: string; name?: string | undefined; age?: number | undefined; ... id?: number }
-
-// Kysely DB type — auto-columns are Generated<T> so insert doesn't require them
-import { type InferDB } from 'd1-kyt/schema';
-export type DB = InferDB<{ users: typeof users }>;
-```
-
----
-
-## Query Builder
-
-`db` is a compile-only Kysely instance exported from your schema file. It holds no connection — it just builds typed SQL that you pass to `queryAll`/`queryFirst`/`queryRun` for execution.
+Custom validators:
 
 ```typescript
-// src/queries.ts
-import { db } from './db/schema';
+import { D1_VALIDATORS, runValidators } from 'd1-kyt';
+import type { QueryValidator } from 'd1-kyt';
 
-export const listUsers = () =>
-  db.selectFrom('users').selectAll().compile();
+const noDrops: QueryValidator = (q) => {
+  if (q.sql.includes('DROP')) throw new Error('DROP not allowed');
+};
 
-export const getUserByEmail = (email: string) =>
-  db.selectFrom('users').selectAll().where('email', '=', email).compile();
-
-export const insertUser = (email: string, name?: string) =>
-  db.insertInto('users').values({ email, name }).returning(['id']).compile();
+await queryAll(env.DB, query, posts, [...D1_VALIDATORS, noDrops]);
+await queryAll(env.DB, query, posts, []);  // disable all checks
 ```
-
-## Execute Queries
-
-```typescript
-// src/app.ts
-import { Hono } from 'hono';
-import { queryAll, queryFirst, queryRun } from 'd1-kyt';
-import * as q from './queries';
-
-const app = new Hono();
-
-app.get('/users', async (c) => {
-  const users = await queryAll(c.env.DB, q.listUsers());
-  return c.json(users);
-});
-
-app.get('/users/:email', async (c) => {
-  const user = await queryFirst(c.env.DB, q.getUserByEmail(c.req.param('email')));
-  return user ? c.json(user) : c.notFound();
-});
-
-app.post('/users', async (c) => {
-  const { email, name } = await c.req.json();
-  const [user] = await queryAll(c.env.DB, q.insertUser(email, name));
-  return c.json(user, 201);
-});
-```
-
----
-
-## Foreign keys
-
-Declare foreign keys in the table options. `PRAGMA foreign_keys = ON` is automatically prepended to any migration that includes FK constraints.
-
-```typescript
-export const categories = defineTable('categories', { name: v.string() });
-
-export const posts = defineTable('posts', {
-  title: v.string(),
-  categoryId: v.pipe(v.number(), v.integer()),
-}, {
-  foreignKeys: [
-    { columns: ['categoryId'], references: categories, onDelete: 'CASCADE' },
-  ],
-});
-```
-
-Generates in `CREATE TABLE`:
-```sql
-FOREIGN KEY ("categoryId") REFERENCES "categories"("id") ON DELETE CASCADE
-```
-
-### Adding a FK column to an existing table
-
-Use a nullable column — SQLite allows `ALTER TABLE ADD COLUMN ... REFERENCES` only when the column is nullable (existing rows get `NULL`):
-
-```typescript
-// v2: add optional deptId FK to existing employees table
-export const employees = defineTable('employees', {
-  name: v.string(),
-  deptId: v.optional(v.pipe(v.number(), v.integer())),  // nullable ✓
-}, {
-  foreignKeys: [{ columns: ['deptId'], references: departments }],
-});
-```
-
-Generates:
-```sql
-ALTER TABLE "employees" ADD COLUMN "deptId" INTEGER REFERENCES "departments"("id");
-```
-
-> Adding a `NOT NULL` FK column to an existing table is not possible without a table rebuild — a warning comment is emitted instead.
-
-### Supported `onDelete` / `onUpdate` actions
-
-`CASCADE` | `SET NULL` | `RESTRICT` | `NO ACTION`
-
----
-
-## Partial indexes
-
-```typescript
-defineIndex(users, ['email'], {
-  unique: true,
-  where: '"active" = 1',   // raw SQL string
-})
-```
-
----
-
-## Conventions
-
-- Auto `id INTEGER PRIMARY KEY AUTOINCREMENT`, `createdAt TEXT`, `updatedAt TEXT` on every table (all configurable/disableable)
-- Auto `AFTER UPDATE` trigger to keep `updatedAt` current
-- Index naming: `{table}_{cols}_idx` / `{table}_{cols}_uq`
-- Trigger naming: `{table}_{col}_trg`
-- `schema.snapshot.jsonc` is the diff source of truth — always commit it alongside migration SQL files
 
 ---
 
 ## API reference
 
-### `d1-kyt/schema`
+### Schema
 
 | Export | Description |
-|---|---|
+|--------|-------------|
 | `defineTable(name, columns, opts?)` | Define a table; returns `SchemaTable` with `$inferSelect` / `$inferInsert` |
-| `defineIndex(table, columns, opts?)` | Define an index (columns are type-checked against the table) |
-| `defineTrigger(name, opts)` | Define a custom trigger attached to a table |
-| `sqlTypeFromSchema(schema)` | Inspect a Valibot schema → `{ type, notNull, default?, isJson }` |
-| `TableOptions` | Options type for auto columns (re-exported) |
-| `InferDB<Tables>` | Infer a Kysely-compatible `DB` type from a record of `SchemaTable` definitions |
+| `defineIndex(table, columns, opts?)` | Define an index (columns are type-checked) |
+| `defineTrigger(name, opts)` | Define a custom trigger |
+| `InferDB<Tables>` | Infer a Kysely-compatible `DB` type |
 
-### `d1-kyt` (main)
+### Execution
 
 | Export | Description |
-|---|---|
-| `createQueryBuilder<DB>()` | Kysely instance (compile-only, no execution) |
-| `queryAll(db, query)` | Execute query, return all rows |
-| `queryFirst(db, query)` | Execute query, return first row or null |
-| `queryRun(db, query)` | Execute mutation, return run metadata |
-| `queryBatch(db, queries)` | Execute multiple queries as a D1 batch |
+|--------|-------------|
+| `createQueryBuilder<DB>()` | Compile-only Kysely instance |
+| `queryAll(db, query, table?, validators?)` | All rows |
+| `queryFirst(db, query, table?, validators?)` | First row or null |
+| `queryRun(db, query, validators?)` | INSERT / UPDATE / DELETE |
+| `queryBatch(db, queries, validators?)` | Atomic batch |
 
-### `d1-kyt/config`
+### Validators
 
 | Export | Description |
-|---|---|
-| `defineConfig(config)` | Define `config.ts` (typed helper) |
+|--------|-------------|
+| `D1_VALIDATORS` | Default validator array |
+| `d1MaxParams` | Enforces ≤ 100 bound parameters |
+| `d1MaxSqlLength` | Enforces ≤ 100,000 char SQL |
+| `runValidators(query, validators?)` | Run validators manually |
 
 ---
 

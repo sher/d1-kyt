@@ -204,6 +204,49 @@ describe('queryAll with table (deserialization)', () => {
   });
 });
 
+describe('validator integration', () => {
+  it('queryAll throws before executing when query exceeds 100 parameters', async () => {
+    const { mockDb } = createMockD1();
+    const rawQuery = { sql: 'SELECT 1', parameters: new Array(101).fill(1) as unknown[], query: {} as any };
+    await expect(queryAll(mockDb, rawQuery)).rejects.toThrow(/bound parameters/);
+  });
+
+  it('queryFirst throws before executing when query exceeds 100 parameters', async () => {
+    const { mockDb } = createMockD1();
+    const rawQuery = { sql: 'SELECT 1', parameters: new Array(101).fill(1) as unknown[], query: {} as any };
+    await expect(queryFirst(mockDb, rawQuery)).rejects.toThrow(/bound parameters/);
+  });
+
+  it('queryRun throws before executing when query exceeds 100 parameters', async () => {
+    const { mockDb } = createMockD1();
+    const rawQuery = { sql: 'SELECT 1', parameters: new Array(101).fill(1) as unknown[], query: {} as any };
+    await expect(queryRun(mockDb, rawQuery)).rejects.toThrow(/bound parameters/);
+  });
+
+  it('queryBatch throws before executing when any query exceeds 100 parameters', async () => {
+    const { mockDb } = createMockD1();
+    const valid = { sql: 'SELECT 1', parameters: [] as unknown[], query: {} as any };
+    const invalid = { sql: 'SELECT 2', parameters: new Array(101).fill(1) as unknown[], query: {} as any };
+    await expect(queryBatch(mockDb, [valid, invalid])).rejects.toThrow(/bound parameters/);
+    expect(mockDb.batch).not.toHaveBeenCalled();
+  });
+
+  it('queryAll throws before executing when SQL exceeds 100KB', async () => {
+    const { mockDb } = createMockD1();
+    const rawQuery = { sql: 'x'.repeat(100_001), parameters: [] as unknown[], query: {} as any };
+    await expect(queryAll(mockDb, rawQuery)).rejects.toThrow(/characters/);
+    expect(mockDb.prepare).not.toHaveBeenCalled();
+  });
+
+  it('accepts custom validators, bypassing defaults', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    mockStatement.all.mockResolvedValue({ results: [], success: true, meta: {} });
+    // This query has 101 params — would fail defaults, but we pass empty validators
+    const rawQuery = { sql: 'SELECT 1', parameters: new Array(101).fill(1) as unknown[], query: {} as any };
+    await expect(queryAll(mockDb, rawQuery, undefined, [])).resolves.not.toThrow();
+  });
+});
+
 describe('queryFirst with table (deserialization)', () => {
   it('deserializes JSON string columns on first row', async () => {
     const { mockDb, mockStatement } = createMockD1();

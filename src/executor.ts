@@ -1,6 +1,8 @@
 import type { CompiledQuery } from 'kysely';
 import type { SchemaTable } from './schema.js';
 import { sqlTypeFromSchema } from './schema.js';
+import { runValidators } from './validators.js';
+import type { QueryValidator } from './validators.js';
 
 /**
  * Serialize a query parameter for D1 binding.
@@ -82,7 +84,9 @@ export async function queryAll<T>(
   db: D1Database,
   query: CompiledQuery<T>,
   table?: SchemaTable<any, any>,
+  validators?: QueryValidator[],
 ): Promise<T[]> {
+  runValidators(query as CompiledQuery<unknown>, validators);
   const result = await db
     .prepare(query.sql)
     .bind(...query.parameters.map(serializeParam))
@@ -103,7 +107,9 @@ export async function queryFirst<T>(
   db: D1Database,
   query: CompiledQuery<T>,
   table?: SchemaTable<any, any>,
+  validators?: QueryValidator[],
 ): Promise<T | null> {
+  runValidators(query as CompiledQuery<unknown>, validators);
   const result = await db
     .prepare(query.sql)
     .bind(...query.parameters.map(serializeParam))
@@ -123,8 +129,10 @@ export async function queryFirst<T>(
  */
 export async function queryRun(
   db: D1Database,
-  query: CompiledQuery<unknown>
+  query: CompiledQuery<unknown>,
+  validators?: QueryValidator[],
 ): Promise<D1RunResult> {
+  runValidators(query, validators);
   const result = await db
     .prepare(query.sql)
     .bind(...query.parameters.map(serializeParam))
@@ -148,8 +156,10 @@ export async function queryRun(
  */
 export async function queryBatch(
   db: D1Database,
-  queries: readonly CompiledQuery<unknown>[]
+  queries: readonly CompiledQuery<unknown>[],
+  validators?: QueryValidator[],
 ): Promise<D1RunResult[]> {
+  for (const q of queries) runValidators(q, validators);
   const statements = queries.map((q) =>
     db.prepare(q.sql).bind(...q.parameters.map(serializeParam))
   );
