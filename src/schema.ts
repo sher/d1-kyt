@@ -157,6 +157,7 @@ export interface ColumnTypeInfo {
   notNull: boolean;
   default?: string;
   isJson: boolean;
+  isBoolean: boolean;
 }
 
 /**
@@ -202,7 +203,7 @@ export function sqlTypeFromSchema(schema: v.BaseSchema<any, any, any>): ColumnTy
       (item: any) => item.type === 'integer' && item.kind === 'validation',
     );
     if (hasInteger) {
-      return { type: 'INTEGER', notNull: !nullable, default: defaultSql, isJson: false };
+      return { type: 'INTEGER', notNull: !nullable, default: defaultSql, isJson: false, isBoolean: false };
     }
   }
 
@@ -210,18 +211,27 @@ export function sqlTypeFromSchema(schema: v.BaseSchema<any, any, any>): ColumnTy
 
   switch (baseType) {
     case 'string':
-      return { type: 'TEXT', notNull: !nullable, default: defaultSql, isJson: false };
+      return { type: 'TEXT', notNull: !nullable, default: defaultSql, isJson: false, isBoolean: false };
     case 'number':
-      return { type: 'REAL', notNull: !nullable, default: defaultSql, isJson: false };
+      return { type: 'REAL', notNull: !nullable, default: defaultSql, isJson: false, isBoolean: false };
     case 'boolean':
-      return { type: 'INTEGER', notNull: !nullable, default: defaultSql, isJson: false };
+      return { type: 'INTEGER', notNull: !nullable, default: defaultSql, isJson: false, isBoolean: true };
     case 'object':
     case 'array':
-      return { type: 'TEXT', notNull: !nullable, default: defaultSql, isJson: true };
+      return { type: 'TEXT', notNull: !nullable, default: defaultSql, isJson: true, isBoolean: false };
     default:
-      // Fallback: TEXT NOT NULL
-      return { type: 'TEXT', notNull: !nullable, default: defaultSql, isJson: false };
+      return { type: 'TEXT', notNull: !nullable, default: defaultSql, isJson: false, isBoolean: false };
   }
+}
+
+// ----------------------------------------------------------------------------
+// Table Registry
+// ----------------------------------------------------------------------------
+
+const tableRegistry = new Map<string, SchemaTable<any, any>>();
+
+export function getTableRegistry(): ReadonlyMap<string, SchemaTable<any, any>> {
+  return tableRegistry;
 }
 
 // ----------------------------------------------------------------------------
@@ -253,7 +263,7 @@ export function defineTable<
   columns: Cols,
   options?: O & { foreignKeys?: SchemaForeignKey[] },
 ): SchemaTable<Cols, O> {
-  return {
+  const table = {
     _name: name,
     _columns: columns,
     _options: (options ?? {}) as O,
@@ -262,6 +272,8 @@ export function defineTable<
     _foreignKeys: [...(options?.foreignKeys ?? [])],
     _schemaTable: true,
   } as unknown as SchemaTable<Cols, O>;
+  tableRegistry.set(name, table);
+  return table;
 }
 
 // ----------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import {
   defineIndex,
   defineTrigger,
   sqlTypeFromSchema,
+  getTableRegistry,
   type InferDB,
 } from './schema.js';
 
@@ -15,109 +16,80 @@ import {
 
 describe('sqlTypeFromSchema', () => {
   it('maps v.string() to TEXT NOT NULL', () => {
-    expect(sqlTypeFromSchema(v.string())).toEqual({
-      type: 'TEXT',
-      notNull: true,
-      isJson: false,
+    expect(sqlTypeFromSchema(v.string())).toMatchObject({
+      type: 'TEXT', notNull: true, isJson: false, isBoolean: false,
     });
   });
 
   it('maps v.number() to REAL NOT NULL', () => {
-    expect(sqlTypeFromSchema(v.number())).toEqual({
-      type: 'REAL',
-      notNull: true,
-      isJson: false,
+    expect(sqlTypeFromSchema(v.number())).toMatchObject({
+      type: 'REAL', notNull: true, isJson: false, isBoolean: false,
     });
   });
 
   it('maps v.pipe(v.number(), v.integer()) to INTEGER NOT NULL', () => {
-    expect(sqlTypeFromSchema(v.pipe(v.number(), v.integer()))).toEqual({
-      type: 'INTEGER',
-      notNull: true,
-      isJson: false,
+    expect(sqlTypeFromSchema(v.pipe(v.number(), v.integer()))).toMatchObject({
+      type: 'INTEGER', notNull: true, isJson: false, isBoolean: false,
     });
   });
 
   it('maps v.boolean() to INTEGER NOT NULL', () => {
-    expect(sqlTypeFromSchema(v.boolean())).toEqual({
-      type: 'INTEGER',
-      notNull: true,
-      isJson: false,
+    expect(sqlTypeFromSchema(v.boolean())).toMatchObject({
+      type: 'INTEGER', notNull: true, isJson: false, isBoolean: true,
     });
   });
 
   it('maps v.object() to TEXT NOT NULL (JSON)', () => {
-    expect(sqlTypeFromSchema(v.object({ a: v.string() }))).toEqual({
-      type: 'TEXT',
-      notNull: true,
-      isJson: true,
+    expect(sqlTypeFromSchema(v.object({ a: v.string() }))).toMatchObject({
+      type: 'TEXT', notNull: true, isJson: true, isBoolean: false,
     });
   });
 
   it('maps v.array() to TEXT NOT NULL (JSON)', () => {
-    expect(sqlTypeFromSchema(v.array(v.string()))).toEqual({
-      type: 'TEXT',
-      notNull: true,
-      isJson: true,
+    expect(sqlTypeFromSchema(v.array(v.string()))).toMatchObject({
+      type: 'TEXT', notNull: true, isJson: true, isBoolean: false,
     });
   });
 
   it('maps v.optional(v.string()) to TEXT nullable', () => {
-    expect(sqlTypeFromSchema(v.optional(v.string()))).toEqual({
-      type: 'TEXT',
-      notNull: false,
-      isJson: false,
+    expect(sqlTypeFromSchema(v.optional(v.string()))).toMatchObject({
+      type: 'TEXT', notNull: false, isJson: false, isBoolean: false,
     });
   });
 
   it('maps v.optional(v.pipe(v.number(), v.integer())) to INTEGER nullable', () => {
-    expect(sqlTypeFromSchema(v.optional(v.pipe(v.number(), v.integer())))).toEqual({
-      type: 'INTEGER',
-      notNull: false,
-      isJson: false,
+    expect(sqlTypeFromSchema(v.optional(v.pipe(v.number(), v.integer())))).toMatchObject({
+      type: 'INTEGER', notNull: false, isJson: false, isBoolean: false,
     });
   });
 
   it('maps v.optional(v.string(), "guest") to TEXT with DEFAULT', () => {
-    expect(sqlTypeFromSchema(v.optional(v.string(), 'guest'))).toEqual({
-      type: 'TEXT',
-      notNull: false,
-      default: "'guest'",
-      isJson: false,
+    expect(sqlTypeFromSchema(v.optional(v.string(), 'guest'))).toMatchObject({
+      type: 'TEXT', notNull: false, default: "'guest'", isJson: false, isBoolean: false,
     });
   });
 
   it('maps v.optional(v.number(), 0) to REAL with DEFAULT 0', () => {
-    expect(sqlTypeFromSchema(v.optional(v.number(), 0))).toEqual({
-      type: 'REAL',
-      notNull: false,
-      default: '0',
-      isJson: false,
+    expect(sqlTypeFromSchema(v.optional(v.number(), 0))).toMatchObject({
+      type: 'REAL', notNull: false, default: '0', isJson: false, isBoolean: false,
     });
   });
 
   it('maps v.optional(v.boolean(), true) to INTEGER with DEFAULT 1', () => {
-    expect(sqlTypeFromSchema(v.optional(v.boolean(), true))).toEqual({
-      type: 'INTEGER',
-      notNull: false,
-      default: '1',
-      isJson: false,
+    expect(sqlTypeFromSchema(v.optional(v.boolean(), true))).toMatchObject({
+      type: 'INTEGER', notNull: false, default: '1', isJson: false, isBoolean: true,
     });
   });
 
   it('maps v.nullable(v.string()) to TEXT nullable', () => {
-    expect(sqlTypeFromSchema(v.nullable(v.string()))).toEqual({
-      type: 'TEXT',
-      notNull: false,
-      isJson: false,
+    expect(sqlTypeFromSchema(v.nullable(v.string()))).toMatchObject({
+      type: 'TEXT', notNull: false, isJson: false, isBoolean: false,
     });
   });
 
   it('maps v.nullable(v.object()) to TEXT nullable (JSON)', () => {
-    expect(sqlTypeFromSchema(v.nullable(v.object({ a: v.string() })))).toEqual({
-      type: 'TEXT',
-      notNull: false,
-      isJson: true,
+    expect(sqlTypeFromSchema(v.nullable(v.object({ a: v.string() })))).toMatchObject({
+      type: 'TEXT', notNull: false, isJson: true, isBoolean: false,
     });
   });
 });
@@ -382,5 +354,21 @@ describe('InferDB', () => {
     );
     type CustomDB = InferDB<{ Custom: typeof Custom }>;
     expectTypeOf<CustomDB['Custom']['uid']>().toEqualTypeOf<Generated<number>>();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// table registry
+// ----------------------------------------------------------------------------
+
+describe('getTableRegistry', () => {
+  it('contains a table after defineTable is called', () => {
+    const reg_table = defineTable('reg_table_test', { name: v.string() });
+    expect(getTableRegistry().get('reg_table_test')).toBe(reg_table);
+  });
+
+  it('returns the same instance registered by defineTable', () => {
+    const t = defineTable('reg_identity_test', { val: v.number() });
+    expect(getTableRegistry().get('reg_identity_test')).toBe(t);
   });
 });

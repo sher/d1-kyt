@@ -1,6 +1,7 @@
-import type { CompiledQuery } from 'kysely';
+import type { CompiledQuery, RootOperationNode } from 'kysely';
+import { SelectQueryNode, TableNode, AliasNode } from 'kysely';
 import type { SchemaTable } from './schema.js';
-import { sqlTypeFromSchema } from './schema.js';
+import { sqlTypeFromSchema, getTableRegistry } from './schema.js';
 import { runValidators } from './validators.js';
 import type { QueryValidator } from './validators.js';
 
@@ -16,16 +17,52 @@ function serializeParam(p: unknown): unknown {
   return JSON.stringify(p);
 }
 
-function deserializeRow<T>(row: Record<string, unknown>, table: SchemaTable<any, any>): T {
+function extractTableNames(node: RootOperationNode): string[] {
+  const names = new Set<string>();
+  if (!SelectQueryNode.is(node)) return [];
+
+  const collectFrom = (n: unknown) => {
+    if (TableNode.is(n)) {
+      names.add((n as any).table.identifier.name);
+    } else if (AliasNode.is(n) && TableNode.is((n as any).node)) {
+      names.add((n as any).node.table.identifier.name);
+    }
+  };
+
+  if (node.from) {
+    for (const f of node.from.froms) collectFrom(f);
+  }
+  if (node.joins) {
+    for (const j of node.joins) collectFrom(j.table);
+  }
+  return Array.from(names);
+}
+
+function deserializeRow<T>(row: Record<string, unknown>, tables: SchemaTable<any, any>[]): T {
   const result = { ...row };
-  for (const col of Object.keys(table._columns)) {
-    if (col in result && typeof result[col] === 'string') {
-      if (sqlTypeFromSchema(table._columns[col]).isJson) {
+  for (const table of tables) {
+    for (const col of Object.keys(table._columns)) {
+      if (!(col in result)) continue;
+      const info = sqlTypeFromSchema(table._columns[col]);
+      if (info.isJson && typeof result[col] === 'string') {
         result[col] = JSON.parse(result[col] as string);
+      } else if (info.isBoolean && (result[col] === 0 || result[col] === 1)) {
+        result[col] = result[col] === 1;
       }
     }
   }
   return result as T;
+}
+
+function resolveTables(
+  node: RootOperationNode,
+  explicit?: SchemaTable<any, any>,
+): SchemaTable<any, any>[] {
+  if (explicit) return [explicit];
+  const registry = getTableRegistry();
+  return extractTableNames(node)
+    .map((n) => registry.get(n))
+    .filter((t): t is SchemaTable<any, any> => t !== undefined);
 }
 
 /**
@@ -87,12 +124,15 @@ export async function queryAll<T>(
   validators?: QueryValidator[],
 ): Promise<T[]> {
   runValidators(query as CompiledQuery<unknown>, validators);
+  const tables = resolveTables(query.query, table);
   const result = await db
     .prepare(query.sql)
     .bind(...query.parameters.map(serializeParam))
     .all<T>();
   const rows = result.results ?? [];
-  return table ? rows.map((r) => deserializeRow<T>(r as Record<string, unknown>, table)) : rows;
+  return tables.length > 0
+    ? rows.map((r) => deserializeRow<T>(r as Record<string, unknown>, tables))
+    : rows;
 }
 
 /**
@@ -110,12 +150,15 @@ export async function queryFirst<T>(
   validators?: QueryValidator[],
 ): Promise<T | null> {
   runValidators(query as CompiledQuery<unknown>, validators);
+  const tables = resolveTables(query.query, table);
   const result = await db
     .prepare(query.sql)
     .bind(...query.parameters.map(serializeParam))
     .first<T>();
   if (result == null) return null;
-  return table ? deserializeRow<T>(result as Record<string, unknown>, table) : result;
+  return tables.length > 0
+    ? deserializeRow<T>(result as Record<string, unknown>, tables)
+    : result;
 }
 
 /**

@@ -204,6 +204,50 @@ describe('queryAll with table (deserialization)', () => {
   });
 });
 
+describe('auto-deserialization via AST', () => {
+  const AutoTable = defineTable('AutoTable', {
+    name: v.string(),
+    meta: v.object({ score: v.number() }),
+    active: v.boolean(),
+  });
+
+  it('auto-deserializes JSON column without explicit table arg', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    mockStatement.all.mockResolvedValue({
+      results: [{ name: 'x', meta: '{"score":10}', active: 1 }],
+      success: true,
+      meta: {},
+    });
+    const query = db.selectFrom('AutoTable').selectAll().compile();
+    const result = await queryAll(mockDb, query);
+    expect((result[0] as any).meta).toEqual({ score: 10 });
+  });
+
+  it('auto-coerces boolean column (1 → true, 0 → false)', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    mockStatement.all.mockResolvedValue({
+      results: [
+        { name: 'a', meta: '{}', active: 1 },
+        { name: 'b', meta: '{}', active: 0 },
+      ],
+      success: true,
+      meta: {},
+    });
+    const query = db.selectFrom('AutoTable').selectAll().compile();
+    const result = await queryAll(mockDb, query);
+    expect((result[0] as any).active).toBe(true);
+    expect((result[1] as any).active).toBe(false);
+  });
+
+  it('explicit table arg still works as override', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    mockStatement.first.mockResolvedValue({ name: 'y', meta: '{"score":99}', active: 1 });
+    const rawQuery = { sql: 'select * from "AutoTable"', parameters: [] as unknown[], query: {} as any };
+    const result = await queryFirst(mockDb, rawQuery, AutoTable);
+    expect((result as any).meta).toEqual({ score: 99 });
+  });
+});
+
 describe('validator integration', () => {
   it('queryAll throws before executing when query exceeds 100 parameters', async () => {
     const { mockDb } = createMockD1();

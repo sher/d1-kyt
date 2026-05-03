@@ -86,14 +86,13 @@ Reads: `schema.ts`, `schema.json` (snapshot). Writes: numbered `.sql` migration,
 ```typescript
 import { queryAll, queryFirst, queryRun, queryBatch } from 'd1-kyt';
 
-// All rows — pass SchemaTable as third arg to deserialize JSON columns
-const allPosts = await queryAll(env.DB, db.selectFrom('posts').selectAll().compile(), posts);
+// All rows — JSON and boolean columns deserialize automatically
+const allPosts = await queryAll(env.DB, db.selectFrom('posts').selectAll().compile());
 
 // First row or null
 const post = await queryFirst(
   env.DB,
   db.selectFrom('posts').selectAll().where('id', '=', id).compile(),
-  posts,
 );
 
 // INSERT / UPDATE / DELETE
@@ -110,7 +109,7 @@ await queryBatch(env.DB, [
 ]);
 ```
 
-**Always pass the `SchemaTable` as the third argument** when the table has JSON columns (`v.object`, `v.array`). Without it, JSON columns return as raw strings.
+JSON columns (`v.object`, `v.array`) and boolean columns (`v.boolean`) are deserialized automatically — no need to pass the table explicitly.
 
 ## 5. D1 Limits
 

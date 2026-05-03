@@ -8,6 +8,7 @@ export {
   defineIndex,
   defineTrigger,
   sqlTypeFromSchema,
+  getTableRegistry,
 } from './schema.js';
 export type {
   InferDB,

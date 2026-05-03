@@ -21,9 +21,9 @@ export const posts = defineTable('posts', {
 export type DB = InferDB<{ posts: typeof posts }>;
 export const db = createQueryBuilder<DB>();
 
-// Type-safe queries
-const all  = await queryAll(env.DB, db.selectFrom('posts').selectAll().compile(), posts);
-const one  = await queryFirst(env.DB, db.selectFrom('posts').where('id', '=', 1).selectAll().compile(), posts);
+// Type-safe queries — JSON and boolean columns deserialize automatically
+const all  = await queryAll(env.DB, db.selectFrom('posts').selectAll().compile());
+const one  = await queryFirst(env.DB, db.selectFrom('posts').where('id', '=', 1).selectAll().compile());
 const done = await queryRun(env.DB, db.deleteFrom('posts').where('id', '=', 1).compile());
 ```
 
@@ -65,7 +65,7 @@ wrangler d1 migrations apply <db> --local
 | `v.string()` | TEXT NOT NULL | |
 | `v.number()` | REAL NOT NULL | |
 | `v.pipe(v.number(), v.integer())` | INTEGER NOT NULL | |
-| `v.boolean()` | INTEGER NOT NULL | stored as 0/1 |
+| `v.boolean()` | INTEGER NOT NULL | stored as 0/1, returned as `boolean` |
 | `v.object({...})` / `v.array(...)` | TEXT NOT NULL | JSON serialized |
 | `v.optional(X)` | nullable | |
 | `v.nullable(X)` | nullable | |
@@ -169,8 +169,8 @@ const noDrops: QueryValidator = (q) => {
   if (q.sql.includes('DROP')) throw new Error('DROP not allowed');
 };
 
-await queryAll(env.DB, query, posts, [...D1_VALIDATORS, noDrops]);
-await queryAll(env.DB, query, posts, []);  // disable all checks
+await queryAll(env.DB, query, undefined, [...D1_VALIDATORS, noDrops]);
+await queryAll(env.DB, query, undefined, []);  // disable all checks
 ```
 
 ---
@@ -191,8 +191,8 @@ await queryAll(env.DB, query, posts, []);  // disable all checks
 | Export | Description |
 |--------|-------------|
 | `createQueryBuilder<DB>()` | Compile-only Kysely instance |
-| `queryAll(db, query, table?, validators?)` | All rows |
-| `queryFirst(db, query, table?, validators?)` | First row or null |
+| `queryAll(db, query, table?, validators?)` | All rows; JSON + boolean columns auto-deserialized |
+| `queryFirst(db, query, table?, validators?)` | First row or null; auto-deserialized |
 | `queryRun(db, query, validators?)` | INSERT / UPDATE / DELETE |
 | `queryBatch(db, queries, validators?)` | Atomic batch |
 
