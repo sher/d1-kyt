@@ -1,4 +1,4 @@
-import type { CompiledQuery, RootOperationNode } from 'kysely';
+import type { CompiledQuery, RootOperationNode, OperationNode } from 'kysely';
 import { SelectQueryNode, TableNode, AliasNode } from 'kysely';
 import type { SchemaTable } from './schema.js';
 import { sqlTypeFromSchema, getTableRegistry } from './schema.js';
@@ -21,7 +21,7 @@ function extractTableNames(node: RootOperationNode): string[] {
   const names = new Set<string>();
   if (!SelectQueryNode.is(node)) return [];
 
-  const collectFrom = (n: unknown) => {
+  const collectFrom = (n: OperationNode) => {
     if (TableNode.is(n)) {
       names.add((n as any).table.identifier.name);
     } else if (AliasNode.is(n) && TableNode.is((n as any).node)) {
