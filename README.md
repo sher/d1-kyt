@@ -3,28 +3,43 @@
 Type-safe [Cloudflare D1](https://developers.cloudflare.com/d1/) toolkit built on [Kysely](https://kysely.dev/) and [Valibot](https://valibot.dev/). Define your schema once in Valibot — get SQL migrations and fully-typed queries with no code generation.
 
 ```typescript
-import { defineTable, InferDB, createQueryBuilder } from 'd1-kyt';
-import { queryAll, queryFirst, queryRun } from 'd1-kyt';
+import { defineTable, InferDB, createQueryBuilder, queryAll, queryFirst, queryRun } from 'd1-kyt';
 import * as v from 'valibot';
 
-export const posts = defineTable('posts', {
-  title:      v.string(),
-  published:  v.boolean(),
-  views:      v.pipe(v.number(), v.integer()),
-  categoryId: v.optional(v.pipe(v.number(), v.integer())),
-  meta:       v.object({ og: v.string() }),        // stored as JSON
-}, {
-  foreignKeys: [{ columns: ['categoryId'], references: categories, onDelete: 'CASCADE' }],
-  indexes: [{ columns: ['title'], unique: true }],
+export const users = defineTable('users', {
+  email:    v.string(),
+  verified: v.boolean(),                          // stored 0/1 → returned as boolean
+  prefs:    v.object({ theme: v.string() }),      // stored as JSON → returned as object
 });
 
-export type DB = InferDB<{ posts: typeof posts }>;
+export const posts = defineTable('posts', {
+  title:    v.string(),
+  views:    v.pipe(v.number(), v.integer()),
+  authorId: v.pipe(v.number(), v.integer()),
+}, {
+  foreignKeys: [{ columns: ['authorId'], references: users }],
+  indexes:     [{ columns: ['title'], unique: true }],
+});
+
+export type DB = InferDB<{ users: typeof users; posts: typeof posts }>;
 export const db = createQueryBuilder<DB>();
 
-// Type-safe queries — JSON and boolean columns deserialize automatically
-const all  = await queryAll(env.DB, db.selectFrom('posts').selectAll().compile());
-const one  = await queryFirst(env.DB, db.selectFrom('posts').where('id', '=', 1).selectAll().compile());
-const done = await queryRun(env.DB, db.deleteFrom('posts').where('id', '=', 1).compile());
+// prefs is { theme: string }, verified is boolean — deserialized automatically
+const verified = await queryAll(
+  env.DB,
+  db.selectFrom('users').selectAll().where('verified', '=', true).compile(),
+);
+
+// full Kysely — joins, subqueries, window functions, all type-checked
+const popular = await queryFirst(
+  env.DB,
+  db.selectFrom('posts')
+    .innerJoin('users', 'users.id', 'posts.authorId')
+    .select(['posts.title', 'posts.views', 'users.email'])
+    .where('posts.views', '>', 1000)
+    .orderBy('posts.views', 'desc')
+    .compile(),
+);
 ```
 
 ## Install
