@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-const VERSION = '0.7.0';
+const VERSION = '0.9.3';
 
 const HELP = `
 d1-kyt v${VERSION} - Opinionated Cloudflare D1 + Kysely toolkit
@@ -149,7 +149,8 @@ async function readD1KytConfig(dir: string): Promise<D1KytConfig | null> {
   try {
     const mod = await import(configPath);
     return mod.default ?? mod.config;
-  } catch {
+  } catch (err) {
+    console.error(`Error importing config:`, err);
     return null;
   }
 }
