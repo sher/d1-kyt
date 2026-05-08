@@ -261,7 +261,7 @@ export function defineTable<
 >(
   name: string,
   columns: Cols,
-  options?: O & { foreignKeys?: SchemaForeignKey[] },
+  options?: O & { foreignKeys?: Array<Omit<SchemaForeignKey, 'columns'> & { columns: (keyof Cols & string)[] }> },
 ): SchemaTable<Cols, O> {
   const table = {
     _name: name,
