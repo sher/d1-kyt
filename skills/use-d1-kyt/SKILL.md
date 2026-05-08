@@ -16,7 +16,7 @@ schema.ts  →  schema:diff  →  .sql migration  →  wrangler apply  →  type
 ## 1. Define Schema
 
 ```typescript
-import { defineTable } from 'd1-kyt';
+import { defineTable, defineIndex } from 'd1-kyt';
 import * as v from 'valibot';
 
 export const posts = defineTable(
@@ -33,10 +33,20 @@ export const posts = defineTable(
     categoryId: v.pipe(v.number(), v.integer()),
   },
   {
-    foreignKeys: [{ columns: ['categoryId'], references: categories, onDelete: 'CASCADE' }],
-    indexes: [{ columns: ['slug'], unique: true }],
+    foreignKeys: [{
+      columns:    ['categoryId'],
+      references: categories,
+      refColumns: ['id'],       // optional, defaults to referenced table's PK
+      onDelete:   'CASCADE',    // CASCADE | SET NULL | RESTRICT | NO ACTION
+      onUpdate:   'NO ACTION',  // same options
+    }],
   }
 );
+
+// Indexes are defined separately with defineIndex (NOT inside defineTable options)
+export const postsSlugIdx = defineIndex(posts, ['slug'], { unique: true });
+export const postsPublishedIdx = defineIndex(posts, ['views'], { where: 'published = 1' }); // partial index
+export const postsCustomIdx = defineIndex(posts, ['title'], { name: 'posts_title_search_idx' });
 ```
 
 **Column type mapping:**

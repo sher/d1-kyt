@@ -3,7 +3,7 @@
 Type-safe [Cloudflare D1](https://developers.cloudflare.com/d1/) toolkit built on [Kysely](https://kysely.dev/) and [Valibot](https://valibot.dev/). Define your schema once in Valibot — get SQL migrations and fully-typed queries with no code generation.
 
 ```typescript
-import { defineTable, InferDB, createQueryBuilder, queryAll, queryFirst, queryRun } from 'd1-kyt';
+import { defineTable, defineIndex, InferDB, createQueryBuilder, queryAll, queryFirst } from 'd1-kyt';
 import * as v from 'valibot';
 
 export const users = defineTable('users', {
@@ -18,8 +18,9 @@ export const posts = defineTable('posts', {
   authorId: v.pipe(v.number(), v.integer()),
 }, {
   foreignKeys: [{ columns: ['authorId'], references: users }],
-  indexes:     [{ columns: ['title'], unique: true }],
 });
+
+export const postsTitleIdx = defineIndex(posts, ['title'], { unique: true });
 
 export type DB = InferDB<{ users: typeof users; posts: typeof posts }>;
 export const db = createQueryBuilder<DB>();
@@ -127,7 +128,13 @@ export const posts = defineTable('posts', {
   title:      v.string(),
   categoryId: v.pipe(v.number(), v.integer()),
 }, {
-  foreignKeys: [{ columns: ['categoryId'], references: categories, onDelete: 'CASCADE' }],
+  foreignKeys: [{
+    columns:    ['categoryId'],
+    references: categories,
+    refColumns: ['id'],           // optional — defaults to the referenced table's PK
+    onDelete:   'CASCADE',        // CASCADE | SET NULL | RESTRICT | NO ACTION
+    onUpdate:   'NO ACTION',
+  }],
 });
 ```
 
@@ -138,6 +145,30 @@ Adding a FK column to an existing table requires a nullable column (SQLite limit
 ```typescript
 deptId: v.optional(v.pipe(v.number(), v.integer()))  // ✓ nullable allows inline REFERENCES
 ```
+
+---
+
+## Indexes
+
+```typescript
+// Basic unique index
+export const postsSlugIdx = defineIndex(posts, ['slug'], { unique: true });
+
+// Composite index
+export const postsAuthorViewsIdx = defineIndex(posts, ['authorId', 'views']);
+
+// Partial index — only indexes rows matching the WHERE clause
+export const postsPublishedIdx = defineIndex(posts, ['createdAt'], {
+  where: 'published = 1',
+});
+
+// Custom index name
+export const postsSearchIdx = defineIndex(posts, ['title'], {
+  name: 'posts_title_fts_idx',
+});
+```
+
+Columns are type-checked against the table definition at compile time.
 
 ---
 
@@ -197,7 +228,7 @@ await queryAll(env.DB, query, undefined, []);  // disable all checks
 | Export | Description |
 |--------|-------------|
 | `defineTable(name, columns, opts?)` | Define a table; returns `SchemaTable` with `$inferSelect` / `$inferInsert` |
-| `defineIndex(table, columns, opts?)` | Define an index (columns are type-checked) |
+| `defineIndex(table, columns, opts?)` | Define an index; columns are type-checked. `opts`: `unique`, `name`, `where` (partial index) |
 | `defineTrigger(name, opts)` | Define a custom trigger |
 | `InferDB<Tables>` | Infer a Kysely-compatible `DB` type |
 
