@@ -1,6 +1,6 @@
 {
   "name": "d1-kyt",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "Opinionated Cloudflare D1 + Kysely toolkit",
   "type": "module",
   "main": "dist/index.js",
@@ -20,6 +20,7 @@
   },
   "files": [
     "dist",
+    "src",
     "skills"
   ],
   "scripts": {
