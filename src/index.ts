@@ -7,6 +7,7 @@ export {
   defineTable,
   defineIndex,
   defineTrigger,
+  withDefault,
   sqlTypeFromSchema,
   getTableRegistry,
 } from './schema.js';
@@ -16,6 +17,8 @@ export type {
   SchemaIndex,
   SchemaTrigger,
   SchemaForeignKey,
+  WithDefault,
+  AnyColSchema,
   ColumnTypeInfo,
   SqliteType,
   TableOptions,
