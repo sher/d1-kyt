@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import * as v from 'valibot';
-import { defineTable, defineIndex, defineTrigger } from './schema.js';
+import { defineTable, defineIndex, defineTrigger, withDefault } from './schema.js';
 import {
   serializeSchema,
   diffSnapshots,
@@ -51,7 +51,7 @@ describe('serializeSchema', () => {
   it('serializes a simple table with auto columns', () => {
     const users = defineTable('u_ser_simple', {
       email: v.string(),
-      name: v.optional(v.string()),
+      name: v.nullable(v.string()),
     });
 
     const snapshot = serializeSchema({ users });
@@ -143,7 +143,7 @@ describe('serializeSchema', () => {
 
   it('handles column with DEFAULT value', () => {
     const t = defineTable('u_ser_def', {
-      role: v.optional(v.string(), 'user'),
+      role: withDefault(v.string(), 'user'),
     });
     const snap = serializeSchema({ t });
     expect(snap.tables['u_ser_def'].columns['role'].default).toBe("'user'");
@@ -187,7 +187,7 @@ describe('diffSnapshots', () => {
 
   it('detects added column', () => {
     const v1 = defineTable('diff_col_add', { title: v.string() });
-    const v2 = defineTable('diff_col_add', { title: v.string(), body: v.optional(v.string()) });
+    const v2 = defineTable('diff_col_add', { title: v.string(), body: v.nullable(v.string()) });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
     const diff = diffSnapshots(prev, next);
@@ -196,7 +196,7 @@ describe('diffSnapshots', () => {
   });
 
   it('detects dropped column', () => {
-    const v1 = defineTable('diff_col_drop', { title: v.string(), body: v.optional(v.string()) });
+    const v1 = defineTable('diff_col_drop', { title: v.string(), body: v.nullable(v.string()) });
     const v2 = defineTable('diff_col_drop', { title: v.string() });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
@@ -239,7 +239,7 @@ describe('diffSnapshots', () => {
 
   it('includes prevTable and nextTable on changed tables', () => {
     const v1 = defineTable('diff_refs', { title: v.string() });
-    const v2 = defineTable('diff_refs', { title: v.string(), body: v.optional(v.string()) });
+    const v2 = defineTable('diff_refs', { title: v.string(), body: v.nullable(v.string()) });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
     const diff = diffSnapshots(prev, next);
@@ -261,7 +261,7 @@ describe('diffToSQL', () => {
   it('generates CREATE TABLE for added table', () => {
     const users = defineTable('sql_add', {
       email: v.string(),
-      name: v.optional(v.string()),
+      name: v.nullable(v.string()),
     });
     const next = serializeSchema({ users });
     const diff = diffSnapshots(empty, next);
@@ -287,7 +287,7 @@ describe('diffToSQL', () => {
 
   it('generates ALTER TABLE ADD COLUMN for added column', () => {
     const v1 = defineTable('sql_col_add', { title: v.string() });
-    const v2 = defineTable('sql_col_add', { title: v.string(), body: v.optional(v.string()) });
+    const v2 = defineTable('sql_col_add', { title: v.string(), body: v.nullable(v.string()) });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
     const diff = diffSnapshots(prev, next);
@@ -297,7 +297,7 @@ describe('diffToSQL', () => {
   });
 
   it('generates ALTER TABLE DROP COLUMN for dropped column', () => {
-    const v1 = defineTable('sql_col_drop', { title: v.string(), body: v.optional(v.string()) });
+    const v1 = defineTable('sql_col_drop', { title: v.string(), body: v.nullable(v.string()) });
     const v2 = defineTable('sql_col_drop', { title: v.string() });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
@@ -367,7 +367,7 @@ describe('diffToSQL', () => {
   });
 
   it('dropping a non-constrained column uses ALTER TABLE DROP COLUMN (no recreation)', () => {
-    const v1 = defineTable('sql_drop_plain', { title: v.string(), note: v.optional(v.string()) });
+    const v1 = defineTable('sql_drop_plain', { title: v.string(), note: v.nullable(v.string()) });
     const v2 = defineTable('sql_drop_plain', { title: v.string() });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
@@ -396,9 +396,9 @@ describe('diffToSQL', () => {
   });
 
   it('dropping a unique-indexed column emits recreation', () => {
-    const v1 = defineTable('sql_drop_uniq', { email: v.string(), name: v.optional(v.string()) });
+    const v1 = defineTable('sql_drop_uniq', { email: v.string(), name: v.nullable(v.string()) });
     defineIndex(v1, ['email'], { unique: true });
-    const v2 = defineTable('sql_drop_uniq', { name: v.optional(v.string()) });
+    const v2 = defineTable('sql_drop_uniq', { name: v.nullable(v.string()) });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
     const sql = diffToSQL(diffSnapshots(prev, next));
@@ -411,9 +411,9 @@ describe('diffToSQL', () => {
   });
 
   it('recreation: generates chunked INSERT statements by rowid range', () => {
-    const v1 = defineTable('sql_chunks', { email: v.string(), name: v.optional(v.string()) });
+    const v1 = defineTable('sql_chunks', { email: v.string(), name: v.nullable(v.string()) });
     defineIndex(v1, ['email'], { unique: true });
-    const v2 = defineTable('sql_chunks', { name: v.optional(v.string()) });
+    const v2 = defineTable('sql_chunks', { name: v.nullable(v.string()) });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
     const sql = diffToSQL(diffSnapshots(prev, next), 5000);
@@ -430,9 +430,9 @@ describe('diffToSQL', () => {
   });
 
   it('recreation: chunkSize=0 emits single INSERT', () => {
-    const v1 = defineTable('sql_nochunk', { email: v.string(), name: v.optional(v.string()) });
+    const v1 = defineTable('sql_nochunk', { email: v.string(), name: v.nullable(v.string()) });
     defineIndex(v1, ['email'], { unique: true });
-    const v2 = defineTable('sql_nochunk', { name: v.optional(v.string()) });
+    const v2 = defineTable('sql_nochunk', { name: v.nullable(v.string()) });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
     const sql = diffToSQL(diffSnapshots(prev, next), 0);
@@ -443,9 +443,9 @@ describe('diffToSQL', () => {
   });
 
   it('recreation: surviving columns are selected in all INSERT chunks', () => {
-    const v1 = defineTable('sql_insert_cols', { email: v.string(), name: v.optional(v.string()) });
+    const v1 = defineTable('sql_insert_cols', { email: v.string(), name: v.nullable(v.string()) });
     defineIndex(v1, ['email'], { unique: true });
-    const v2 = defineTable('sql_insert_cols', { name: v.optional(v.string()) });
+    const v2 = defineTable('sql_insert_cols', { name: v.nullable(v.string()) });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
     const sql = diffToSQL(diffSnapshots(prev, next));
@@ -462,9 +462,9 @@ describe('diffToSQL', () => {
   });
 
   it('recreation: triggers are re-emitted; no duplicate trigger create', () => {
-    const v1 = defineTable('sql_rec_trg', { email: v.string(), name: v.optional(v.string()) });
+    const v1 = defineTable('sql_rec_trg', { email: v.string(), name: v.nullable(v.string()) });
     defineIndex(v1, ['email'], { unique: true });
-    const v2 = defineTable('sql_rec_trg', { name: v.optional(v.string()) });
+    const v2 = defineTable('sql_rec_trg', { name: v.nullable(v.string()) });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
     const sql = diffToSQL(diffSnapshots(prev, next));
@@ -497,8 +497,8 @@ describe('SQLite integration: CREATE TABLE from schema', () => {
       price: v.number(),
       qty: v.pipe(v.number(), v.integer()),
       active: v.boolean(),
-      tags: v.optional(v.array(v.string())),
-      meta: v.optional(v.object({ color: v.string() })),
+      tags: v.nullable(v.array(v.string())),
+      meta: v.nullable(v.object({ color: v.string() })),
     });
 
     const snap = serializeSchema({ products });
@@ -605,7 +605,7 @@ describe('SQLite integration: CREATE TABLE from schema', () => {
     db.exec(`INSERT INTO "alter_add" ("title") VALUES ('hello')`);
 
     // v2: add column
-    const v2 = defineTable('alter_add', { title: v.string(), body: v.optional(v.string()) });
+    const v2 = defineTable('alter_add', { title: v.string(), body: v.nullable(v.string()) });
     const snap2 = serializeSchema({ t: v2 });
     const diff = diffSnapshots(snap1, snap2);
     const sql2 = diffToSQL(diff).filter((s) => !s.startsWith('--'));
@@ -624,7 +624,7 @@ describe('SQLite integration: CREATE TABLE from schema', () => {
 
   it('ALTER TABLE DROP COLUMN removes column', () => {
     // v1: create table with extra column
-    const v1 = defineTable('alter_drop', { title: v.string(), legacy: v.optional(v.string()) });
+    const v1 = defineTable('alter_drop', { title: v.string(), legacy: v.nullable(v.string()) });
     const snap1 = serializeSchema({ t: v1 });
     const sql1 = diffToSQL(diffSnapshots({ version: 1, tables: {} }, snap1));
 
@@ -647,7 +647,7 @@ describe('SQLite integration: CREATE TABLE from schema', () => {
   });
 
   it('nullable column accepts NULL', () => {
-    const t = defineTable('null_col', { note: v.optional(v.string()) });
+    const t = defineTable('null_col', { note: v.nullable(v.string()) });
     const snap = serializeSchema({ t });
     const sql = diffToSQL(diffSnapshots({ version: 1, tables: {} }, snap));
 
@@ -772,7 +772,7 @@ describe('SQLite integration: CREATE TABLE from schema', () => {
       'fk_emps',
       {
         name: v.string(),
-        deptId: v.optional(v.pipe(v.number(), v.integer())),
+        deptId: v.nullable(v.pipe(v.number(), v.integer())),
       },
       { foreignKeys: [{ columns: ['deptId'], references: depts }] },
     );
@@ -790,7 +790,7 @@ describe('SQLite integration: CREATE TABLE from schema', () => {
 
   it('recreate table when dropping a unique-indexed column: data preserved, column removed', () => {
     // v1: table with a unique-indexed column
-    const v1 = defineTable('rec_uniq_col', { email: v.string(), name: v.optional(v.string()) });
+    const v1 = defineTable('rec_uniq_col', { email: v.string(), name: v.nullable(v.string()) });
     defineIndex(v1, ['email'], { unique: true });
     const snap1 = serializeSchema({ t: v1 });
     const sql1 = diffToSQL(diffSnapshots({ version: 1, tables: {} }, snap1));
@@ -802,7 +802,7 @@ describe('SQLite integration: CREATE TABLE from schema', () => {
     db.exec(`INSERT INTO "rec_uniq_col" ("email","name") VALUES ('b@x.com','Bob')`);
 
     // v2: drop the unique-indexed column
-    const v2 = defineTable('rec_uniq_col', { name: v.optional(v.string()) });
+    const v2 = defineTable('rec_uniq_col', { name: v.nullable(v.string()) });
     const snap2 = serializeSchema({ t: v2 });
     const sql2 = diffToSQL(diffSnapshots(snap1, snap2)).filter((s) => !s.startsWith('--'));
     for (const stmt of sql2) {
@@ -822,7 +822,7 @@ describe('SQLite integration: CREATE TABLE from schema', () => {
   });
 
   it('recreate table when dropping a unique-indexed column: updatedAt trigger is restored', () => {
-    const v1 = defineTable('rec_trg_restore', { email: v.string(), name: v.optional(v.string()) });
+    const v1 = defineTable('rec_trg_restore', { email: v.string(), name: v.nullable(v.string()) });
     defineIndex(v1, ['email'], { unique: true });
     const snap1 = serializeSchema({ t: v1 });
     const sql1 = diffToSQL(diffSnapshots({ version: 1, tables: {} }, snap1));
@@ -832,7 +832,7 @@ describe('SQLite integration: CREATE TABLE from schema', () => {
 
     db.exec(`INSERT INTO "rec_trg_restore" ("email","name") VALUES ('x@x.com','X')`);
 
-    const v2 = defineTable('rec_trg_restore', { name: v.optional(v.string()) });
+    const v2 = defineTable('rec_trg_restore', { name: v.nullable(v.string()) });
     const snap2 = serializeSchema({ t: v2 });
     const sql2 = diffToSQL(diffSnapshots(snap1, snap2)).filter((s) => !s.startsWith('--'));
     for (const stmt of sql2) {

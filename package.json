@@ -1,6 +1,6 @@
 {
   "name": "d1-kyt",
-  "version": "0.9.7",
+  "version": "0.10.0",
   "description": "Opinionated Cloudflare D1 + Kysely toolkit",
   "type": "module",
   "main": "dist/index.js",
@@ -46,10 +46,10 @@
     "valibot": ">=1.0.0"
   },
   "devDependencies": {
-    "@types/node": "24.10.13",
-    "kysely": "0.28.11",
-    "typescript": "5.9.3",
-    "valibot": "1.2.0",
-    "vitest": "4.0.18"
+    "@types/node": "26.0.1",
+    "kysely": "0.29.2",
+    "typescript": "6.0.3",
+    "valibot": "1.4.1",
+    "vitest": "4.1.9"
   }
 }

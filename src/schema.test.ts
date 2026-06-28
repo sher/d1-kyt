@@ -6,6 +6,7 @@ import {
   defineIndex,
   defineTrigger,
   sqlTypeFromSchema,
+  withDefault,
   getTableRegistry,
   type InferDB,
 } from './schema.js';
@@ -51,45 +52,51 @@ describe('sqlTypeFromSchema', () => {
     });
   });
 
-  it('maps v.optional(v.string()) to TEXT nullable', () => {
-    expect(sqlTypeFromSchema(v.optional(v.string()))).toMatchObject({
-      type: 'TEXT', notNull: false, isJson: false, isBoolean: false,
-    });
-  });
-
-  it('maps v.optional(v.pipe(v.number(), v.integer())) to INTEGER nullable', () => {
-    expect(sqlTypeFromSchema(v.optional(v.pipe(v.number(), v.integer())))).toMatchObject({
-      type: 'INTEGER', notNull: false, isJson: false, isBoolean: false,
-    });
-  });
-
-  it('maps v.optional(v.string(), "guest") to TEXT with DEFAULT', () => {
-    expect(sqlTypeFromSchema(v.optional(v.string(), 'guest'))).toMatchObject({
-      type: 'TEXT', notNull: false, default: "'guest'", isJson: false, isBoolean: false,
-    });
-  });
-
-  it('maps v.optional(v.number(), 0) to REAL with DEFAULT 0', () => {
-    expect(sqlTypeFromSchema(v.optional(v.number(), 0))).toMatchObject({
-      type: 'REAL', notNull: false, default: '0', isJson: false, isBoolean: false,
-    });
-  });
-
-  it('maps v.optional(v.boolean(), true) to INTEGER with DEFAULT 1', () => {
-    expect(sqlTypeFromSchema(v.optional(v.boolean(), true))).toMatchObject({
-      type: 'INTEGER', notNull: false, default: '1', isJson: false, isBoolean: true,
-    });
-  });
-
-  it('maps v.nullable(v.string()) to TEXT nullable', () => {
+  it('maps v.nullable(v.string()) to TEXT NULL', () => {
     expect(sqlTypeFromSchema(v.nullable(v.string()))).toMatchObject({
       type: 'TEXT', notNull: false, isJson: false, isBoolean: false,
     });
   });
 
-  it('maps v.nullable(v.object()) to TEXT nullable (JSON)', () => {
+  it('maps v.nullable(v.pipe(v.number(), v.integer())) to INTEGER NULL', () => {
+    expect(sqlTypeFromSchema(v.nullable(v.pipe(v.number(), v.integer())))).toMatchObject({
+      type: 'INTEGER', notNull: false, isJson: false, isBoolean: false,
+    });
+  });
+
+  it('maps v.nullable(v.object()) to TEXT NULL (JSON)', () => {
     expect(sqlTypeFromSchema(v.nullable(v.object({ a: v.string() })))).toMatchObject({
       type: 'TEXT', notNull: false, isJson: true, isBoolean: false,
+    });
+  });
+
+  it('maps withDefault(v.boolean(), false) to INTEGER NOT NULL DEFAULT 0', () => {
+    expect(sqlTypeFromSchema(withDefault(v.boolean(), false))).toMatchObject({
+      type: 'INTEGER', notNull: true, default: '0', isJson: false, isBoolean: true,
+    });
+  });
+
+  it('maps withDefault(v.boolean(), true) to INTEGER NOT NULL DEFAULT 1', () => {
+    expect(sqlTypeFromSchema(withDefault(v.boolean(), true))).toMatchObject({
+      type: 'INTEGER', notNull: true, default: '1', isJson: false, isBoolean: true,
+    });
+  });
+
+  it('maps withDefault(v.string(), "guest") to TEXT NOT NULL DEFAULT', () => {
+    expect(sqlTypeFromSchema(withDefault(v.string(), 'guest'))).toMatchObject({
+      type: 'TEXT', notNull: true, default: "'guest'", isJson: false, isBoolean: false,
+    });
+  });
+
+  it('maps withDefault(v.number(), 0) to REAL NOT NULL DEFAULT 0', () => {
+    expect(sqlTypeFromSchema(withDefault(v.number(), 0))).toMatchObject({
+      type: 'REAL', notNull: true, default: '0', isJson: false, isBoolean: false,
+    });
+  });
+
+  it('maps withDefault(v.pipe(v.number(), v.integer()), 1) to INTEGER NOT NULL DEFAULT 1', () => {
+    expect(sqlTypeFromSchema(withDefault(v.pipe(v.number(), v.integer()), 1))).toMatchObject({
+      type: 'INTEGER', notNull: true, default: '1', isJson: false, isBoolean: false,
     });
   });
 });
@@ -102,7 +109,7 @@ describe('defineTable', () => {
   it('returns SchemaTable with correct metadata', () => {
     const users = defineTable('users', {
       email: v.string(),
-      name: v.optional(v.string()),
+      name: v.nullable(v.string()),
     });
 
     expect(users._name).toBe('users');
@@ -121,19 +128,25 @@ describe('defineTable', () => {
     expect(t._options).toMatchObject({ primaryKey: false, createdAt: false, updatedAt: false });
   });
 
-  it('$inferSelect: non-optional column is required type', () => {
+  it('$inferSelect: required column is base type', () => {
     const users = defineTable('users_inf', { email: v.string() });
     type S = typeof users.$inferSelect;
     expectTypeOf<S['email']>().toEqualTypeOf<string>();
   });
 
-  it('$inferSelect: optional column is T | undefined', () => {
+  it('$inferSelect: nullable column is T | null', () => {
     const users = defineTable('users_inf2', {
       email: v.string(),
-      name: v.optional(v.string()),
+      name: v.nullable(v.string()),
     });
     type S = typeof users.$inferSelect;
-    expectTypeOf<S['name']>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<S['name']>().toEqualTypeOf<string | null>();
+  });
+
+  it('$inferSelect: withDefault column is base type (not undefined)', () => {
+    const t = defineTable('users_wd', { active: withDefault(v.boolean(), false) });
+    type S = typeof t.$inferSelect;
+    expectTypeOf<S['active']>().toEqualTypeOf<boolean>();
   });
 
   it('$inferSelect: includes auto id as number', () => {
@@ -150,10 +163,16 @@ describe('defineTable', () => {
     expectTypeOf<I['email']>().toEqualTypeOf<string>();
   });
 
-  it('$inferInsert: optional column becomes optional', () => {
-    const t = defineTable('t_ins2', { name: v.optional(v.string()) });
+  it('$inferInsert: nullable column is optional on insert', () => {
+    const t = defineTable('t_ins2', { name: v.nullable(v.string()) });
     type I = typeof t.$inferInsert;
-    expectTypeOf<I['name']>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<I['name']>().toEqualTypeOf<string | null | undefined>();
+  });
+
+  it('$inferInsert: withDefault column is optional on insert', () => {
+    const t = defineTable('t_ins_wd', { active: withDefault(v.boolean(), false) });
+    type I = typeof t.$inferInsert;
+    expectTypeOf<I['active']>().toEqualTypeOf<boolean | undefined>();
   });
 
   it('$inferInsert: id is optional', () => {
@@ -269,11 +288,12 @@ describe('InferDB', () => {
     score: v.pipe(v.number(), v.integer()),
     rating: v.number(),
     active: v.boolean(),
-    nickname: v.optional(v.string(), 'anon'),
-    note: v.optional(v.string()),
+    nickname: withDefault(v.string(), 'anon'),
+    defaultBool: withDefault(v.boolean(), false),
+    note: v.nullable(v.string()),
     meta: v.object({ key: v.string() }),
     tags: v.array(v.string()),
-    optMeta: v.optional(v.object({ key: v.string() })),
+    nullableMeta: v.nullable(v.object({ key: v.string() })),
     nullableName: v.nullable(v.string()),
     nullableObj: v.nullable(v.object({ x: v.number() })),
   });
@@ -297,33 +317,35 @@ describe('InferDB', () => {
     expectTypeOf<Row['active']>().toEqualTypeOf<boolean>();
   });
 
-  it('optional with default → Generated<T>', () => {
+  it('withDefault string → Generated<string>', () => {
     expectTypeOf<Row['nickname']>().toEqualTypeOf<Generated<string>>();
   });
 
-  it('optional without default → Generated<T | null>', () => {
-    expectTypeOf<Row['note']>().toEqualTypeOf<Generated<string | null>>();
+  it('withDefault boolean → Generated<boolean>', () => {
+    expectTypeOf<Row['defaultBool']>().toEqualTypeOf<Generated<boolean>>();
   });
 
-  it('required JSON object → ColumnType<T, string, string>', () => {
-    expectTypeOf<Row['meta']>().toEqualTypeOf<ColumnType<{ key: string }, string, string>>();
+  it('nullable string → string | null', () => {
+    expectTypeOf<Row['note']>().toEqualTypeOf<string | null>();
   });
 
-  it('required JSON array → ColumnType<T, string, string>', () => {
-    expectTypeOf<Row['tags']>().toEqualTypeOf<ColumnType<string[], string, string>>();
+  it('required JSON object → ColumnType<T, T, T>', () => {
+    expectTypeOf<Row['meta']>().toEqualTypeOf<ColumnType<{ key: string }, { key: string }, { key: string }>>();
   });
 
-  it('optional JSON without default → ColumnType<T | null, string | null | undefined, string | null | undefined>', () => {
-    expectTypeOf<Row['optMeta']>().toEqualTypeOf<
-      ColumnType<{ key: string } | null, string | null | undefined, string | null | undefined>
-    >();
+  it('required JSON array → ColumnType<T, T, T>', () => {
+    expectTypeOf<Row['tags']>().toEqualTypeOf<ColumnType<string[], string[], string[]>>();
+  });
+
+  it('nullable JSON object → T | null', () => {
+    expectTypeOf<Row['nullableMeta']>().toEqualTypeOf<{ key: string } | null>();
   });
 
   it('nullable string → T | null', () => {
     expectTypeOf<Row['nullableName']>().toEqualTypeOf<string | null>();
   });
 
-  it('nullable JSON object → T | null', () => {
+  it('nullable JSON object (nullableObj) → T | null', () => {
     expectTypeOf<Row['nullableObj']>().toEqualTypeOf<{ x: number } | null>();
   });
 

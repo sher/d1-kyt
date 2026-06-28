@@ -45,6 +45,42 @@ export interface SchemaTrigger {
 }
 
 // ----------------------------------------------------------------------------
+// withDefault
+// ----------------------------------------------------------------------------
+
+/**
+ * Mark a column as having a database-level DEFAULT value.
+ * The column stays NOT NULL. The value is emitted as SQL DEFAULT.
+ * On INSERT the column is optional; on SELECT it is always present.
+ *
+ * @example
+ * ```ts
+ * active: withDefault(v.boolean(), false)                    // INTEGER NOT NULL DEFAULT 0
+ * role:   withDefault(v.string(), 'viewer')                  // TEXT NOT NULL DEFAULT 'viewer'
+ * score:  withDefault(v.pipe(v.number(), v.integer()), 0)    // INTEGER NOT NULL DEFAULT 0
+ * ```
+ */
+export interface WithDefault<S extends v.BaseSchema<any, any, any>, D> {
+  readonly _tag: 'withDefault';
+  readonly schema: S;
+  readonly value: D;
+}
+
+export function withDefault<
+  S extends v.BaseSchema<any, any, any>,
+  D extends v.InferOutput<S>,
+>(schema: S, value: D): WithDefault<S, D> {
+  return { _tag: 'withDefault', schema, value };
+}
+
+/**
+ * A column schema: either a plain Valibot schema or a withDefault wrapper.
+ */
+export type AnyColSchema =
+  | v.BaseSchema<any, any, any>
+  | WithDefault<v.BaseSchema<any, any, any>, any>;
+
+// ----------------------------------------------------------------------------
 // Type Inference
 // ----------------------------------------------------------------------------
 
@@ -77,26 +113,40 @@ type IsJsonOutput<T> =
   [T] extends [object] ? true :
   false;
 
-// Map a single valibot schema to its Kysely column type.
-type InferKyselyColumn<S extends v.BaseSchema<any, any, any>> =
-  S extends { type: 'optional'; wrapped: infer Inner extends v.BaseSchema<any, any, any>; default: infer Default }
+// Extract the TypeScript output type from any column schema.
+type ColOutput<S extends AnyColSchema> =
+  S extends WithDefault<infer Inner extends v.BaseSchema<any, any, any>, any>
+    ? v.InferOutput<Inner>
+    : S extends v.BaseSchema<any, any, any>
+      ? v.InferOutput<S>
+      : never;
+
+// True when the column may be omitted on INSERT.
+type IsInsertOptional<S extends AnyColSchema> =
+  S extends WithDefault<any, any>
+    ? true
+    : S extends { type: 'nullable' }
+      ? true
+      : false;
+
+// Map a single column schema to its Kysely column type.
+type InferKyselyColumn<S extends AnyColSchema> =
+  S extends WithDefault<infer Inner extends v.BaseSchema<any, any, any>, any>
     ? IsJsonOutput<v.InferOutput<Inner>> extends true
-      ? Default extends undefined
-        ? ColumnType<v.InferOutput<Inner> | null, v.InferOutput<Inner> | null | undefined, v.InferOutput<Inner> | null | undefined>
-        : ColumnType<v.InferOutput<Inner>, v.InferOutput<Inner> | undefined, v.InferOutput<Inner>>
-      : Default extends undefined
-        ? Generated<v.InferOutput<Inner> | null>
-        : Generated<v.InferOutput<Inner>>
+      ? ColumnType<v.InferOutput<Inner>, v.InferOutput<Inner> | undefined, v.InferOutput<Inner>>
+      : Generated<v.InferOutput<Inner>>
     : S extends { type: 'nullable'; wrapped: infer Inner extends v.BaseSchema<any, any, any> }
       ? v.InferOutput<Inner> | null
-      : IsJsonOutput<v.InferOutput<S>> extends true
-        ? ColumnType<v.InferOutput<S>, v.InferOutput<S>, v.InferOutput<S>>
-        : v.InferOutput<S>;
+      : S extends v.BaseSchema<any, any, any>
+        ? IsJsonOutput<v.InferOutput<S>> extends true
+          ? ColumnType<v.InferOutput<S>, v.InferOutput<S>, v.InferOutput<S>>
+          : v.InferOutput<S>
+        : never;
 
 /**
  * Infer a Kysely-compatible DB type from a record of SchemaTable definitions.
- * Columns with defaults or auto-columns become `Generated<T>` (optional on insert).
- * JSON columns (object/array schemas) use `ColumnType<T, string, string>`.
+ * Columns wrapped with withDefault become Generated<T> (optional on insert).
+ * JSON columns use ColumnType<T, T, T>.
  *
  * @example
  * export type DB = InferDB<{ Match: typeof Match }>;
@@ -109,18 +159,16 @@ export type InferDB<Tables extends Record<string, SchemaTable<any, any>>> = {
 };
 
 type InferSelect<
-  Cols extends Record<string, v.BaseSchema<any, any, any>>,
+  Cols extends Record<string, AnyColSchema>,
   O extends TableOptions = object,
 > = {
-  [K in keyof Cols]: v.InferOutput<Cols[K]>;
+  [K in keyof Cols]: ColOutput<Cols[K]>;
 } & AutoColumnsSelect<O>;
 
-type InferInsert<
-  Cols extends Record<string, v.BaseSchema<any, any, any>>,
-> = {
-  [K in keyof Cols as undefined extends v.InferOutput<Cols[K]> ? never : K]: v.InferOutput<Cols[K]>;
+type InferInsert<Cols extends Record<string, AnyColSchema>> = {
+  [K in keyof Cols as IsInsertOptional<Cols[K]> extends true ? never : K]: ColOutput<Cols[K]>;
 } & {
-  [K in keyof Cols as undefined extends v.InferOutput<Cols[K]> ? K : never]?: v.InferOutput<Cols[K]>;
+  [K in keyof Cols as IsInsertOptional<Cols[K]> extends true ? K : never]?: ColOutput<Cols[K]>;
 } & { id?: number; createdAt?: string; updatedAt?: string };
 
 // ----------------------------------------------------------------------------
@@ -128,10 +176,7 @@ type InferInsert<
 // ----------------------------------------------------------------------------
 
 export interface SchemaTable<
-  Cols extends Record<string, v.BaseSchema<any, any, any>> = Record<
-    string,
-    v.BaseSchema<any, any, any>
-  >,
+  Cols extends Record<string, AnyColSchema> = Record<string, AnyColSchema>,
   O extends TableOptions = object,
 > {
   readonly _name: string;
@@ -161,7 +206,7 @@ export interface ColumnTypeInfo {
 }
 
 /**
- * Inspect a Valibot schema object and derive the SQLite type, nullability,
+ * Inspect a column schema and derive the SQLite type, nullability,
  * and optional DEFAULT value.
  *
  * Mapping:
@@ -170,40 +215,44 @@ export interface ColumnTypeInfo {
  *   v.pipe(v.number(), v.integer(), ...) → INTEGER NOT NULL
  *   v.boolean()                          → INTEGER NOT NULL
  *   v.object({...}) / v.array(...)       → TEXT NOT NULL (JSON)
- *   v.optional(X) / v.nullable(X)       → type of X, nullable
- *   v.optional(X, defaultVal)           → type of X + DEFAULT, nullable
+ *   v.nullable(X)                        → type of X, NULL
+ *   withDefault(X, val)                  → type of X, NOT NULL DEFAULT val
  */
-export function sqlTypeFromSchema(schema: v.BaseSchema<any, any, any>): ColumnTypeInfo {
+export function sqlTypeFromSchema(schema: AnyColSchema): ColumnTypeInfo {
+  // Handle withDefault wrapper — extract default value, recurse on inner schema.
+  if ((schema as any)._tag === 'withDefault') {
+    const wd = schema as WithDefault<v.BaseSchema<any, any, any>, any>;
+    const info = sqlTypeFromSchema(wd.schema);
+    const def: unknown = wd.value;
+    let defaultSql: string | undefined;
+    if (def === null) {
+      defaultSql = 'NULL';
+    } else if (typeof def === 'string') {
+      defaultSql = `'${def}'`;
+    } else if (typeof def === 'number') {
+      defaultSql = String(def);
+    } else if (typeof def === 'boolean') {
+      defaultSql = def ? '1' : '0';
+    }
+    return { ...info, default: defaultSql };
+  }
+
   let nullable = false;
-  let defaultSql: string | undefined;
   let inner: any = schema;
 
-  // Unwrap optional / nullable
-  if (inner?.type === 'optional' || inner?.type === 'nullable') {
+  if (inner?.type === 'nullable') {
     nullable = true;
-    if (inner.type === 'optional' && inner.default !== undefined) {
-      const def: unknown =
-        typeof inner.default === 'function' ? (inner.default as () => unknown)() : inner.default;
-      if (typeof def === 'string') {
-        defaultSql = `'${def}'`;
-      } else if (typeof def === 'number') {
-        defaultSql = String(def);
-      } else if (typeof def === 'boolean') {
-        defaultSql = def ? '1' : '0';
-      }
-    }
     inner = inner.wrapped;
   }
 
   // In Valibot v1, v.pipe(v.number(), v.integer()) produces an object where:
   //   .type === 'number'  AND  .pipe === [numberSchema, integerValidationAction]
-  // Detect: base type is 'number' and .pipe contains an integer validation action.
   if (inner?.type === 'number' && Array.isArray(inner.pipe)) {
     const hasInteger = (inner.pipe as any[]).some(
       (item: any) => item.type === 'integer' && item.kind === 'validation',
     );
     if (hasInteger) {
-      return { type: 'INTEGER', notNull: !nullable, default: defaultSql, isJson: false, isBoolean: false };
+      return { type: 'INTEGER', notNull: !nullable, default: undefined, isJson: false, isBoolean: false };
     }
   }
 
@@ -211,16 +260,16 @@ export function sqlTypeFromSchema(schema: v.BaseSchema<any, any, any>): ColumnTy
 
   switch (baseType) {
     case 'string':
-      return { type: 'TEXT', notNull: !nullable, default: defaultSql, isJson: false, isBoolean: false };
+      return { type: 'TEXT', notNull: !nullable, default: undefined, isJson: false, isBoolean: false };
     case 'number':
-      return { type: 'REAL', notNull: !nullable, default: defaultSql, isJson: false, isBoolean: false };
+      return { type: 'REAL', notNull: !nullable, default: undefined, isJson: false, isBoolean: false };
     case 'boolean':
-      return { type: 'INTEGER', notNull: !nullable, default: defaultSql, isJson: false, isBoolean: true };
+      return { type: 'INTEGER', notNull: !nullable, default: undefined, isJson: false, isBoolean: true };
     case 'object':
     case 'array':
-      return { type: 'TEXT', notNull: !nullable, default: defaultSql, isJson: true, isBoolean: false };
+      return { type: 'TEXT', notNull: !nullable, default: undefined, isJson: true, isBoolean: false };
     default:
-      return { type: 'TEXT', notNull: !nullable, default: defaultSql, isJson: false, isBoolean: false };
+      return { type: 'TEXT', notNull: !nullable, default: undefined, isJson: false, isBoolean: false };
   }
 }
 
@@ -240,23 +289,26 @@ export function getTableRegistry(): ReadonlyMap<string, SchemaTable<any, any>> {
 
 /**
  * Define a table using Valibot schemas as column types.
+ * Use withDefault(schema, value) for columns with database-level defaults.
+ * Use v.nullable(schema) for columns that allow NULL.
  *
  * Auto-columns (id, createdAt, updatedAt) are added by default; control via
  * the same `TableOptions` as the imperative `defineTable` in `d1-kyt/migrate`.
  *
  * @example
  * ```ts
- * import { defineTable } from 'd1-kyt/schema';
+ * import { defineTable, withDefault } from 'd1-kyt/schema';
  * import * as v from 'valibot';
  *
  * export const users = defineTable('users', {
  *   email: v.string(),
- *   name: v.optional(v.string()),
+ *   name: v.nullable(v.string()),
+ *   role: withDefault(v.string(), 'viewer'),
  * });
  * ```
  */
 export function defineTable<
-  Cols extends Record<string, v.BaseSchema<any, any, any>>,
+  Cols extends Record<string, AnyColSchema>,
   O extends TableOptions = object,
 >(
   name: string,
@@ -289,7 +341,7 @@ export function defineTable<
  * export const usersEmailIdx = defineIndex(users, ['email'], { unique: true });
  * ```
  */
-export function defineIndex<Cols extends Record<string, v.BaseSchema<any, any, any>>>(
+export function defineIndex<Cols extends Record<string, AnyColSchema>>(
   table: SchemaTable<Cols, any>,
   columns: (keyof Cols & string)[],
   options?: { unique?: boolean; name?: string; where?: string },
@@ -306,7 +358,6 @@ export function defineIndex<Cols extends Record<string, v.BaseSchema<any, any, a
     where: options?.where,
   };
 
-  // Attach to table (array is mutable despite readonly property marker)
   (table._indexes as SchemaIndex[]).push(index);
 
   return index;
@@ -344,7 +395,6 @@ export function defineTrigger(
     body: options.body,
   };
 
-  // Attach to table
   (options.on._triggers as SchemaTrigger[]).push(trigger);
 
   return trigger;
