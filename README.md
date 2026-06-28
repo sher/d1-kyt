@@ -3,12 +3,13 @@
 Type-safe [Cloudflare D1](https://developers.cloudflare.com/d1/) toolkit built on [Kysely](https://kysely.dev/) and [Valibot](https://valibot.dev/). Define your schema once in Valibot — get SQL migrations and fully-typed queries with no code generation.
 
 ```typescript
-import { defineTable, defineIndex, InferDB, createQueryBuilder, queryAll, queryFirst } from 'd1-kyt';
+import { defineTable, defineIndex, withDefault, InferDB, createQueryBuilder, queryAll, queryFirst } from 'd1-kyt';
 import * as v from 'valibot';
 
 export const users = defineTable('users', {
   email:    v.string(),
-  verified: v.boolean(),                          // stored 0/1 → returned as boolean
+  verified: withDefault(v.boolean(), false),      // NOT NULL DEFAULT 0, optional on insert
+  name:     v.nullable(v.string()),               // NULL allowed
   prefs:    v.object({ theme: v.string() }),      // stored as JSON → returned as object
 });
 
@@ -83,9 +84,8 @@ wrangler d1 migrations apply <db> --local
 | `v.pipe(v.number(), v.integer())` | INTEGER NOT NULL | |
 | `v.boolean()` | INTEGER NOT NULL | stored as 0/1, returned as `boolean` |
 | `v.object({...})` / `v.array(...)` | TEXT NOT NULL | JSON serialized |
-| `v.optional(X)` | nullable | |
-| `v.nullable(X)` | nullable | |
-| `v.optional(X, default)` | DEFAULT val | |
+| `v.nullable(X)` | nullable (NULL) | select type is `T \| null` |
+| `withDefault(X, val)` | NOT NULL DEFAULT val | optional on insert, `T` on select |
 
 ### Auto columns
 
@@ -143,7 +143,7 @@ export const posts = defineTable('posts', {
 Adding a FK column to an existing table requires a nullable column (SQLite limitation):
 
 ```typescript
-deptId: v.optional(v.pipe(v.number(), v.integer()))  // ✓ nullable allows inline REFERENCES
+deptId: v.nullable(v.pipe(v.number(), v.integer()))  // ✓ nullable allows inline REFERENCES
 ```
 
 ---
@@ -230,6 +230,7 @@ await queryAll(env.DB, query, undefined, []);  // disable all checks
 | `defineTable(name, columns, opts?)` | Define a table; returns `SchemaTable` with `$inferSelect` / `$inferInsert` |
 | `defineIndex(table, columns, opts?)` | Define an index; columns are type-checked. `opts`: `unique`, `name`, `where` (partial index) |
 | `defineTrigger(name, opts)` | Define a custom trigger |
+| `withDefault(schema, value)` | Mark a column as NOT NULL with a DB-level default; optional on insert |
 | `InferDB<Tables>` | Infer a Kysely-compatible `DB` type |
 
 ### Execution
