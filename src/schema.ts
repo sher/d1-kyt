@@ -297,7 +297,7 @@ export function getTableRegistry(): ReadonlyMap<string, SchemaTable<any, any>> {
  *
  * @example
  * ```ts
- * import { defineTable, withDefault } from 'd1-kyt/schema';
+ * import { defineTable, withDefault } from 'd1-kyt';
  * import * as v from 'valibot';
  *
  * export const users = defineTable('users', {

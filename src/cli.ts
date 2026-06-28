@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-const VERSION = '0.10.2';
+const VERSION = '0.10.3';
 
 const HELP = `
 d1-kyt v${VERSION} - Opinionated Cloudflare D1 + Kysely toolkit
@@ -192,7 +192,7 @@ function cmdInit(dirFlag?: string): void {
   if (!existsSync(schemaPath)) {
     writeFileSync(
       schemaPath,
-      `import { defineTable, defineIndex } from 'd1-kyt/schema';\nimport { createQueryBuilder } from 'd1-kyt';\nimport * as v from 'valibot';\n\n// Define your tables here, then run: d1-kyt schema:diff <name>\n//\n// export const users = defineTable('users', {\n//   email: v.string(),                                   // TEXT NOT NULL\n//   name:  v.optional(v.string()),                       // TEXT (nullable)\n//   age:   v.optional(v.pipe(v.number(), v.integer())), // INTEGER (nullable)\n//   prefs: v.optional(v.object({ theme: v.string() })), // TEXT JSON (nullable)\n// });\n//\n// export const usersEmailIdx = defineIndex(users, ['email'], { unique: true });\n\n// Add each table to DB, then use \`db\` for type-safe query building.\nexport type DB = {\n  // users: typeof users.$inferSelect;\n};\n\nexport const db = createQueryBuilder<DB>();\n`,
+      `import { defineTable, defineIndex, withDefault } from 'd1-kyt';\nimport { createQueryBuilder } from 'd1-kyt';\nimport * as v from 'valibot';\n\n// Define your tables here, then run: d1-kyt schema:diff <name>\n//\n// export const users = defineTable('users', {\n//   email:  v.string(),                                          // TEXT NOT NULL\n//   name:   v.nullable(v.string()),                             // TEXT (nullable)\n//   age:    v.nullable(v.pipe(v.number(), v.integer())),        // INTEGER (nullable)\n//   active: withDefault(v.boolean(), false),                    // INTEGER NOT NULL DEFAULT 0\n//   prefs:  v.nullable(v.object({ theme: v.string() })),       // TEXT JSON (nullable)\n// });\n//\n// export const usersEmailIdx = defineIndex(users, ['email'], { unique: true });\n\n// Add each table to DB, then use \`db\` for type-safe query building.\nexport type DB = {\n  // users: typeof users.$inferSelect;\n};\n\nexport const db = createQueryBuilder<DB>();\n`,
     );
     console.log(`Created: ${relDir}/${SCHEMA_FILE}`);
   } else {

@@ -16,7 +16,7 @@ const db = createQueryBuilder<TestDB>();
 const ItemTable = defineTable('Item', {
   name: v.string(),
   meta: v.object({ score: v.number() }),
-  tags: v.optional(v.array(v.string())),
+  tags: v.nullable(v.array(v.string())),
 });
 
 function createMockD1() {
