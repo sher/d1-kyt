@@ -16,20 +16,20 @@ schema.ts  →  schema:diff  →  .sql migration  →  wrangler apply  →  type
 ## 1. Define Schema
 
 ```typescript
-import { defineTable, defineIndex } from 'd1-kyt';
+import { defineTable, defineIndex, withDefault } from 'd1-kyt';
 import * as v from 'valibot';
 
 export const posts = defineTable(
   'posts',
   {
-    title:      v.string(),                           // TEXT NOT NULL
-    views:      v.pipe(v.number(), v.integer()),      // INTEGER NOT NULL
-    rating:     v.number(),                           // REAL NOT NULL
-    published:  v.boolean(),                          // INTEGER NOT NULL (0/1)
-    slug:       v.optional(v.string()),               // TEXT nullable
-    summary:    v.optional(v.string(), 'TBD'),        // TEXT DEFAULT 'TBD'
-    meta:       v.object({ og: v.string() }),         // TEXT (JSON) NOT NULL
-    tags:       v.array(v.string()),                  // TEXT (JSON) NOT NULL
+    title:      v.string(),                                        // TEXT NOT NULL
+    views:      v.pipe(v.number(), v.integer()),                   // INTEGER NOT NULL
+    rating:     v.number(),                                        // REAL NOT NULL
+    published:  withDefault(v.boolean(), false),                   // INTEGER NOT NULL DEFAULT 0
+    slug:       v.nullable(v.string()),                            // TEXT NULL
+    summary:    withDefault(v.string(), 'TBD'),                    // TEXT NOT NULL DEFAULT 'TBD'
+    meta:       v.object({ og: v.string() }),                      // TEXT (JSON) NOT NULL
+    tags:       v.array(v.string()),                               // TEXT (JSON) NOT NULL
     categoryId: v.pipe(v.number(), v.integer()),
   },
   {
@@ -58,16 +58,15 @@ export const postsCustomIdx = defineIndex(posts, ['title'], { name: 'posts_title
 | `v.number()` | REAL NOT NULL | |
 | `v.boolean()` | INTEGER NOT NULL | stored as 0/1 |
 | `v.object({...})` / `v.array(...)` | TEXT NOT NULL | JSON serialized |
-| `v.optional(schema)` | nullable | no default |
-| `v.optional(schema, val)` | DEFAULT val | |
-| `v.nullable(schema)` | nullable | |
+| `v.nullable(schema)` | nullable (NULL) | select type is `T \| null` |
+| `withDefault(schema, val)` | NOT NULL DEFAULT val | optional on insert, `T` on select |
 
 Auto columns added to every table: `id` (INTEGER PRIMARY KEY AUTOINCREMENT), `createdAt` (TEXT), `updatedAt` (TEXT).
 
 ## 2. Infer Types & Create Query Builder
 
 ```typescript
-import { InferDB, createQueryBuilder } from 'd1-kyt';
+import { InferDB, createQueryBuilder, withDefault } from 'd1-kyt';
 
 export type DB = InferDB<{
   posts: typeof posts;
@@ -165,7 +164,7 @@ ALTER TABLE "posts" ADD COLUMN "categoryId" INTEGER NOT NULL;
 Fix — make the column nullable so the FK can be inlined:
 
 ```typescript
-categoryId: v.optional(v.pipe(v.number(), v.integer()))
+categoryId: v.nullable(v.pipe(v.number(), v.integer()))
 // generates: ALTER TABLE "posts" ADD COLUMN "categoryId" INTEGER REFERENCES "categories"("id")
 ```
 
