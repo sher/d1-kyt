@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { queryAll, queryFirst, queryRun, queryBatch } from './executor.js';
 import { createQueryBuilder } from './query-builder.js';
-import { defineTable } from './schema.js';
+import { defineTable, withDefault } from './schema.js';
 import * as v from 'valibot';
 
 interface TestDB {
@@ -245,6 +245,46 @@ describe('auto-deserialization via AST', () => {
     const rawQuery = { sql: 'select * from "AutoTable"', parameters: [] as unknown[], query: {} as any };
     const result = await queryFirst(mockDb, rawQuery, AutoTable);
     expect((result as any).meta).toEqual({ score: 99 });
+    expect((result as any).active).toBe(true);
+  });
+
+  it('queryFirst auto-coerces boolean column (1 → true)', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    mockStatement.first.mockResolvedValue({ name: 'a', meta: '{}', active: 1 });
+    const query = db.selectFrom('AutoTable').selectAll().compile();
+    const result = await queryFirst(mockDb, query);
+    expect((result as any).active).toBe(true);
+  });
+
+  it('queryFirst auto-coerces boolean column (0 → false)', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    mockStatement.first.mockResolvedValue({ name: 'b', meta: '{}', active: 0 });
+    const query = db.selectFrom('AutoTable').selectAll().compile();
+    const result = await queryFirst(mockDb, query);
+    expect((result as any).active).toBe(false);
+  });
+});
+
+describe('queryFirst with withDefault boolean (deserialization)', () => {
+  const DefaultBoolTable = defineTable('DefaultBoolTable', {
+    name: v.string(),
+    active: withDefault(v.boolean(), false),
+  });
+
+  it('coerces withDefault boolean column (1 → true)', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    mockStatement.first.mockResolvedValue({ name: 'x', active: 1 });
+    const rawQuery = { sql: 'select * from "DefaultBoolTable"', parameters: [] as unknown[], query: {} as any };
+    const result = await queryFirst(mockDb, rawQuery, DefaultBoolTable);
+    expect((result as any).active).toBe(true);
+  });
+
+  it('coerces withDefault boolean column (0 → false)', async () => {
+    const { mockDb, mockStatement } = createMockD1();
+    mockStatement.first.mockResolvedValue({ name: 'x', active: 0 });
+    const rawQuery = { sql: 'select * from "DefaultBoolTable"', parameters: [] as unknown[], query: {} as any };
+    const result = await queryFirst(mockDb, rawQuery, DefaultBoolTable);
+    expect((result as any).active).toBe(false);
   });
 });
 
