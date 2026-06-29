@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.5 (2026-06-29)
+
+**Test** — Add missing `queryFirst` boolean coercion tests:
+- Auto-deserialization via AST (no explicit table arg): `1 → true`, `0 → false`
+- Explicit table arg: add boolean assertion alongside existing JSON assertion
+- `withDefault(v.boolean(), ...)`: coercion works through the `withDefault` unwrap path
+
 ## 0.10.3 (2026-06-28)
 
 **Fix** — Remove all remaining `v.optional` usages and `'d1-kyt/schema'` import paths that slipped through in 0.10.0:
