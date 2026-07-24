@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0-rc.1 (2026-07-24)
+
+**Rename** — Project and npm package renamed from `d1-kyt` to `jiku`.
+
+**Feature** — `defineVirtualTable`: typed, migration-free views over real tables.
+- A Kysely plugin rewrites queries at the AST level, so a virtual table can be queried with the normal query builder.
+- Compose a virtual table from joins of multiple real tables (`left` or `inner`), with columns pulled in from each joined table.
+- Supports aliased references, e.g. `selectFrom('X as p')`.
+- Throws if a virtual table is used as an insert, update, or delete target, since it is read-only.
+
 ## 0.10.5 (2026-06-29)
 
 **Test** — Add missing `queryFirst` boolean coercion tests:
