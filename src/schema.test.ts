@@ -3,6 +3,7 @@ import * as v from 'valibot';
 import type { ColumnType, Generated } from 'kysely';
 import {
   defineTable,
+  defineVirtualTable,
   defineIndex,
   defineTrigger,
   sqlTypeFromSchema,
@@ -376,6 +377,92 @@ describe('InferDB', () => {
     );
     type CustomDB = InferDB<{ Custom: typeof Custom }>;
     expectTypeOf<CustomDB['Custom']['uid']>().toEqualTypeOf<Generated<number>>();
+  });
+});
+
+// ----------------------------------------------------------------------------
+// defineVirtualTable
+// ----------------------------------------------------------------------------
+
+describe('defineVirtualTable', () => {
+  const Product = defineTable('vt_product', {
+    name: v.string(),
+    priceYen: v.nullable(v.pipe(v.number(), v.integer())),
+    condition: v.nullable(v.string()),
+    category: v.string(),
+  });
+
+  it('picks only the specified columns', () => {
+    const vt = defineVirtualTable('VtProduct1', Product, ['name', 'priceYen']);
+    expect(Object.keys(vt._columns)).toEqual(['name', 'priceYen']);
+  });
+
+  it('uses the given name, references source table via _source', () => {
+    const vt = defineVirtualTable('VtProduct2', Product, ['name']);
+    expect(vt._name).toBe('VtProduct2');
+    expect(vt._source).toBe(Product);
+    expect(vt._source._name).toBe('vt_product');
+  });
+
+  it('is NOT registered in tableRegistry', () => {
+    const Source = defineTable('vt_source_real', { x: v.string(), y: v.string() });
+    defineVirtualTable('VtSource', Source, ['x']);
+    expect(getTableRegistry().has('vt_source_real')).toBe(true);
+    expect(getTableRegistry().has('VtSource')).toBe(false);
+  });
+
+  it('$inferSelect: picked columns have correct types', () => {
+    const vt = defineVirtualTable('VtProduct3', Product, ['name', 'priceYen']);
+    type S = typeof vt.$inferSelect;
+    expectTypeOf<S['name']>().toEqualTypeOf<string>();
+    expectTypeOf<S['priceYen']>().toEqualTypeOf<number | null>();
+  });
+
+  it('$inferSelect: unpicked columns are not present', () => {
+    const vt = defineVirtualTable('VtProduct4', Product, ['name']);
+    type S = typeof vt.$inferSelect;
+    // @ts-expect-error 'condition' was not picked
+    type _check = S['condition'];
+  });
+
+  it('type error: column not in source table', () => {
+    // @ts-expect-error 'nonexistent' is not a key of Product columns
+    defineVirtualTable('VtProduct5', Product, ['nonexistent']);
+  });
+
+  it('defineIndex on virtual table targets source table', () => {
+    const vt = defineVirtualTable('VtProductIdx', Product, ['priceYen', 'condition']);
+    const initialCount = Product._indexes.length;
+    const idx = defineIndex(vt, ['priceYen']);
+    expect(idx._tableName).toBe('vt_product');
+    expect(idx.name).toBe('vt_product_priceYen_idx');
+    expect(Product._indexes.length).toBe(initialCount + 1);
+    expect(Product._indexes).toContain(idx);
+  });
+
+  it('defineIndex on virtual table: type error for unpicked column', () => {
+    const vt = defineVirtualTable('VtProductIdx2', Product, ['priceYen']);
+    // @ts-expect-error 'condition' was not picked into this virtual table
+    defineIndex(vt, ['condition']);
+  });
+
+  it('joins: merges columns from joined table into _columns', () => {
+    const Seller = defineTable('vt_seller', { shopName: v.string() });
+    const vt = defineVirtualTable('VtProductWithSeller', Product, ['name'], {
+      joins: [{ table: Seller, on: ['category', 'shopName'], columns: ['shopName'], type: 'inner' }],
+    });
+    expect(Object.keys(vt._columns).sort()).toEqual(['name', 'shopName']);
+    expect(vt._joins).toHaveLength(1);
+    expect(vt._joins[0].table).toBe(Seller);
+  });
+
+  it('joins: $inferSelect includes joined column types', () => {
+    const Seller2 = defineTable('vt_seller2', { shopName: v.string() });
+    const vt = defineVirtualTable('VtProductWithSeller2', Product, ['name'], {
+      joins: [{ table: Seller2, on: ['category', 'shopName'], columns: ['shopName'], type: 'inner' }],
+    });
+    type S = typeof vt.$inferSelect;
+    expectTypeOf<S['shopName']>().toEqualTypeOf<string>();
   });
 });
 

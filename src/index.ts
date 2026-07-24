@@ -1,10 +1,12 @@
 export { createQueryBuilder } from './query-builder.js';
+export { VirtualTablePlugin } from './virtual-table-plugin.js';
 export { queryAll, queryFirst, queryRun, queryBatch } from './executor.js';
 export type { D1Database, D1RunResult } from './executor.js';
 
 // schema
 export {
   defineTable,
+  defineVirtualTable,
   defineIndex,
   defineTrigger,
   withDefault,
@@ -14,6 +16,7 @@ export {
 export type {
   InferDB,
   SchemaTable,
+  VirtualTable,
   SchemaIndex,
   SchemaTrigger,
   SchemaForeignKey,

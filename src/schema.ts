@@ -152,7 +152,7 @@ type InferKyselyColumn<S extends AnyColSchema> =
  * export type DB = InferDB<{ Match: typeof Match }>;
  * export const db = createQueryBuilder<DB>();
  */
-export type InferDB<Tables extends Record<string, SchemaTable<any, any>>> = {
+export type InferDB<Tables extends Record<string, SchemaTable<any, any> | VirtualTable<any, any>>> = {
   [K in keyof Tables]: {
     [C in keyof Tables[K]['_columns']]: InferKyselyColumn<Tables[K]['_columns'][C]>;
   } & AutoColumnsKysely<Tables[K]['_options']>;
@@ -284,6 +284,100 @@ export function getTableRegistry(): ReadonlyMap<string, SchemaTable<any, any>> {
 }
 
 // ----------------------------------------------------------------------------
+// VirtualTable
+// ----------------------------------------------------------------------------
+
+/**
+ * Joins a virtual table's primary source to another real table.
+ * `on` is an equi-join condition: `[primaryColumn, joinedTableColumn]`.
+ * A virtual table cannot itself be joined further downstream — joins are
+ * only used to compose the virtual table's own source at definition time.
+ */
+export interface VirtualTableJoin<
+  JCols extends Record<string, AnyColSchema> = Record<string, AnyColSchema>,
+  JK extends keyof JCols & string = keyof JCols & string,
+> {
+  readonly table: SchemaTable<JCols, any>;
+  readonly on: readonly [string, string];
+  readonly columns: readonly JK[];
+  readonly type?: 'inner' | 'left';
+}
+
+type JoinedColumns<Joins extends readonly VirtualTableJoin<any, any>[]> =
+  Joins extends readonly [infer First extends VirtualTableJoin<any, any>, ...infer Rest extends readonly VirtualTableJoin<any, any>[]]
+    ? Pick<First['table']['_columns'], First['columns'][number]> & JoinedColumns<Rest>
+    : object;
+
+export interface VirtualTable<
+  Cols extends Record<string, AnyColSchema>,
+  O extends TableOptions = object,
+> {
+  readonly _name: string;
+  readonly _columns: Cols;
+  readonly _options: O;
+  readonly _source: SchemaTable<any, any>;
+  readonly _where: Record<string, unknown> | undefined;
+  readonly _joins: readonly VirtualTableJoin<any, any>[];
+  /** Phantom type: resolved row type for SELECT queries */
+  $inferSelect: InferSelect<Cols, O>;
+  /** Phantom type: input type for INSERT queries */
+  $inferInsert: InferInsert<Cols>;
+}
+
+/**
+ * Define a virtual (ephemeral) table — a typed slice of a real table's columns.
+ * No SQL table is created; no migration is generated.
+ *
+ * When passed to `createQueryBuilder`, a Kysely plugin transparently rewrites
+ * `db.selectFrom(name)` queries to target the source table with the given column
+ * list and optional WHERE filter injected automatically.
+ *
+ * Column names are type-checked against the source table at compile time.
+ * Renaming a source column causes a TypeScript error here.
+ *
+ * @example
+ * ```ts
+ * const PostForSale = defineVirtualTable('PostForSale', Post, ['itemType', 'priceYen'], {
+ *   where: { category: 'for_sale' },
+ * });
+ * const db = createQueryBuilder<DB>([PostForSale]);
+ * db.selectFrom('PostForSale').selectAll(); // → SELECT id, ... FROM Post WHERE category = ?
+ * ```
+ */
+export function defineVirtualTable<
+  Cols extends Record<string, AnyColSchema>,
+  O extends TableOptions,
+  K extends keyof Cols & string,
+  const Joins extends readonly VirtualTableJoin<any, any>[] = [],
+>(
+  name: string,
+  source: SchemaTable<Cols, O>,
+  columns: K[],
+  options?: { where?: Record<string, unknown>; joins?: Joins },
+): VirtualTable<Pick<Cols, K> & JoinedColumns<Joins>, O> {
+  const picked = Object.fromEntries(
+    columns.map(k => [k, source._columns[k]]),
+  ) as Pick<Cols, K>;
+
+  const joins = options?.joins ?? ([] as unknown as Joins);
+  const joinedColumns: Record<string, AnyColSchema> = {};
+  for (const join of joins) {
+    for (const col of join.columns) {
+      joinedColumns[col] = join.table._columns[col];
+    }
+  }
+
+  return {
+    _name: name,
+    _columns: { ...picked, ...joinedColumns },
+    _options: source._options,
+    _source: source,
+    _where: options?.where,
+    _joins: joins,
+  } as unknown as VirtualTable<Pick<Cols, K> & JoinedColumns<Joins>, O>;
+}
+
+// ----------------------------------------------------------------------------
 // defineTable
 // ----------------------------------------------------------------------------
 
@@ -342,23 +436,24 @@ export function defineTable<
  * ```
  */
 export function defineIndex<Cols extends Record<string, AnyColSchema>>(
-  table: SchemaTable<Cols, any>,
+  table: SchemaTable<Cols, any> | VirtualTable<Cols, any>,
   columns: (keyof Cols & string)[],
   options?: { unique?: boolean; name?: string; where?: string },
 ): SchemaIndex {
+  const realTable = '_schemaTable' in table ? table : table._source;
   const unique = options?.unique ?? false;
   const suffix = unique ? 'uq' : 'idx';
-  const name = options?.name ?? `${table._name}_${columns.join('_')}_${suffix}`;
+  const name = options?.name ?? `${realTable._name}_${columns.join('_')}_${suffix}`;
 
   const index: SchemaIndex = {
-    _tableName: table._name,
+    _tableName: realTable._name,
     name,
     columns: columns as string[],
     unique,
     where: options?.where,
   };
 
-  (table._indexes as SchemaIndex[]).push(index);
+  (realTable._indexes as SchemaIndex[]).push(index);
 
   return index;
 }
