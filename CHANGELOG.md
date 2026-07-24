@@ -9,10 +9,10 @@
 
 ## 0.10.3 (2026-06-28)
 
-**Fix** — Remove all remaining `v.optional` usages and `'d1-kyt/schema'` import paths that slipped through in 0.10.0:
+**Fix** — Remove all remaining `v.optional` usages and `'jiku/schema'` import paths that slipped through in 0.10.0:
 - `executor.test.ts`: `v.optional` → `v.nullable`
-- `cli.ts` init template: updated to `v.nullable` / `withDefault`, import corrected to `'d1-kyt'`
-- `schema.ts` JSDoc example: import corrected to `'d1-kyt'`
+- `cli.ts` init template: updated to `v.nullable` / `withDefault`, import corrected to `'jiku'`
+- `schema.ts` JSDoc example: import corrected to `'jiku'`
 
 ## 0.10.2 (2026-06-28)
 
@@ -20,7 +20,7 @@
 
 ## 0.10.1 (2026-06-28)
 
-**Docs** — Updated README and `skills/use-d1-kyt/SKILL.md` to reflect the 0.10.0 API: `withDefault` and `v.nullable` examples throughout, `v.optional` removed.
+**Docs** — Updated README and `skills/use-jiku/SKILL.md` to reflect the 0.10.0 API: `withDefault` and `v.nullable` examples throughout, `v.optional` removed.
 
 ## 0.10.0 (2026-06-28)
 

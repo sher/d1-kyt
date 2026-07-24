@@ -4,7 +4,7 @@
 
 export type NamingStrategy = 'sequential' | 'timestamp';
 
-export interface D1KytConfig {
+export interface JikuConfig {
   migrationsDir: string;
   namingStrategy: NamingStrategy;
 }
@@ -13,6 +13,6 @@ export interface D1KytConfig {
 // defineConfig
 // ----------------------------------------------------------------------------
 
-export function defineConfig(config: D1KytConfig): D1KytConfig {
+export function defineConfig(config: JikuConfig): JikuConfig {
   return config;
 }
