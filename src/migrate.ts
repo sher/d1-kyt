@@ -258,7 +258,7 @@ export function useTable<T>(name: string): Table<T> {
  * ```typescript
  * // db/index.ts - create once
  * import type { DB } from './generated';
- * import { createUseTable } from 'jiku/migrate';
+ * import { createUseTable } from 'd1-kyt/migrate';
  *
  * export const useTable = createUseTable<DB>();
  *

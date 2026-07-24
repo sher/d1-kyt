@@ -1,13 +1,13 @@
 ---
-name: use-jiku
-description: Use when building with jiku — the Cloudflare D1 + Kysely + Valibot toolkit. Covers schema definition, migration generation, type inference, query execution, JSON column deserialization, D1 limits, and migration gotchas like NOT NULL FK constraints and table recreation.
+name: use-d1-kyt
+description: Use when building with d1-kyt — the Cloudflare D1 + Kysely + Valibot toolkit. Covers schema definition, migration generation, type inference, query execution, JSON column deserialization, D1 limits, and migration gotchas like NOT NULL FK constraints and table recreation.
 ---
 
-# Using jiku
+# Using d1-kyt
 
 ## Overview
 
-jiku connects three layers: **Valibot** (schema/validation) → **Kysely** (type-safe query builder) → **Cloudflare D1/SQLite** (executor). No code generation, no ORM runtime.
+d1-kyt connects three layers: **Valibot** (schema/validation) → **Kysely** (type-safe query builder) → **Cloudflare D1/SQLite** (executor). No code generation, no ORM runtime.
 
 ```
 schema.ts  →  schema:diff  →  .sql migration  →  wrangler apply  →  typed queries
@@ -16,7 +16,7 @@ schema.ts  →  schema:diff  →  .sql migration  →  wrangler apply  →  type
 ## 1. Define Schema
 
 ```typescript
-import { defineTable, defineIndex, withDefault } from 'jiku';
+import { defineTable, defineIndex, withDefault } from 'd1-kyt';
 import * as v from 'valibot';
 
 export const posts = defineTable(
@@ -66,7 +66,7 @@ Auto columns added to every table: `id` (INTEGER PRIMARY KEY AUTOINCREMENT), `cr
 ## 2. Infer Types & Create Query Builder
 
 ```typescript
-import { InferDB, createQueryBuilder, withDefault } from 'jiku';
+import { InferDB, createQueryBuilder, withDefault } from 'd1-kyt';
 
 export type DB = InferDB<{
   posts: typeof posts;
@@ -80,10 +80,10 @@ export const db = createQueryBuilder<DB>();
 ## 3. Generate Migrations
 
 ```bash
-jiku schema:diff                          # auto-name from diff
-jiku schema:diff add_tags_column          # custom name
-jiku schema:diff --schema src/schema.ts   # custom schema path
-jiku schema:diff --dir db                 # custom directory
+d1-kyt schema:diff                          # auto-name from diff
+d1-kyt schema:diff add_tags_column          # custom name
+d1-kyt schema:diff --schema src/schema.ts   # custom schema path
+d1-kyt schema:diff --dir db                 # custom directory
 ```
 
 Reads: `schema.ts`, `schema.json` (snapshot). Writes: numbered `.sql` migration, updated `schema.json`, and `schema.sql` (full DDL from scratch).
@@ -93,7 +93,7 @@ Reads: `schema.ts`, `schema.json` (snapshot). Writes: numbered `.sql` migration,
 ## 4. Execute Queries
 
 ```typescript
-import { queryAll, queryFirst, queryRun, queryBatch } from 'jiku';
+import { queryAll, queryFirst, queryRun, queryBatch } from 'd1-kyt';
 
 // All rows — JSON and boolean columns deserialize automatically
 const allPosts = await queryAll(env.DB, db.selectFrom('posts').selectAll().compile());
@@ -122,7 +122,7 @@ JSON columns (`v.object`, `v.array`) and boolean columns (`v.boolean`) are deser
 
 ## 5. D1 Limits
 
-jiku enforces these at runtime — violations throw before hitting D1:
+d1-kyt enforces these at runtime — violations throw before hitting D1:
 
 | Limit | Value | Where enforced |
 |-------|-------|----------------|
@@ -134,8 +134,8 @@ jiku enforces these at runtime — violations throw before hitting D1:
 To use a custom validator set (e.g. disable checks in tests, or add your own rules):
 
 ```typescript
-import { D1_VALIDATORS, runValidators } from 'jiku';
-import type { QueryValidator } from 'jiku';
+import { D1_VALIDATORS, runValidators } from 'd1-kyt';
+import type { QueryValidator } from 'd1-kyt';
 
 const noDrops: QueryValidator = (q) => {
   if (q.sql.includes('DROP')) throw new Error('DROP not allowed');
@@ -154,7 +154,7 @@ Wide tables and batch inserts are the most common ways to hit the 100-parameter 
 
 ### NOT NULL column with foreign key on existing table
 
-SQLite's `ALTER TABLE ADD COLUMN` cannot include `REFERENCES` for NOT NULL columns. jiku emits a warning and omits the FK:
+SQLite's `ALTER TABLE ADD COLUMN` cannot include `REFERENCES` for NOT NULL columns. d1-kyt emits a warning and omits the FK:
 
 ```sql
 -- WARNING: cannot add NOT NULL column "categoryId" with FK to existing table "posts"; make it nullable or rebuild
@@ -170,7 +170,7 @@ categoryId: v.nullable(v.pipe(v.number(), v.integer()))
 
 ### Table recreation for constrained column drops
 
-Dropping a column that is part of a PRIMARY KEY or UNIQUE index requires full table recreation. jiku generates 10 chunked `INSERT` statements (default 5,000 rows each = 50,000 rows total):
+Dropping a column that is part of a PRIMARY KEY or UNIQUE index requires full table recreation. d1-kyt generates 10 chunked `INSERT` statements (default 5,000 rows each = 50,000 rows total):
 
 ```sql
 -- WARNING: table "posts" must be recreated (constrained column drop). Data is copied in chunks of 5000 rows.
@@ -183,11 +183,11 @@ If your table exceeds 50,000 rows, extend the pattern manually in the generated 
 
 ### Foreign keys and PRAGMA
 
-When any FK is present, jiku automatically prepends `PRAGMA foreign_keys = ON;` to the migration.
+When any FK is present, d1-kyt automatically prepends `PRAGMA foreign_keys = ON;` to the migration.
 
 ### Modified columns
 
-SQLite cannot `ALTER COLUMN`. jiku emits a warning comment — you must handle the change manually or rebuild the table:
+SQLite cannot `ALTER COLUMN`. d1-kyt emits a warning comment — you must handle the change manually or rebuild the table:
 
 ```sql
 -- WARNING: column "posts"."title" changed; SQLite cannot ALTER COLUMN — handle manually

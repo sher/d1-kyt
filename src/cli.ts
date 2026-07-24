@@ -6,11 +6,11 @@ import { dirname, join, resolve } from 'node:path';
 const VERSION = '0.10.4';
 
 const HELP = `
-jiku v${VERSION} - Opinionated Cloudflare D1 + Kysely toolkit
+d1-kyt v${VERSION} - Opinionated Cloudflare D1 + Kysely toolkit
 
 Usage:
-  jiku init [--dir <dir>]
-  jiku schema:diff [name] [--dir <dir>] [--schema <path>]
+  d1-kyt init [--dir <dir>]
+  d1-kyt schema:diff [name] [--dir <dir>] [--schema <path>]
 
 Commands:
   init              Scaffold config, schema template, and snapshot in <dir>
@@ -24,14 +24,14 @@ Options:
   --version, -v     Show version
 
 Examples:
-  jiku init                        # auto-detect dir (db/ by default)
-  jiku init --dir db               # use db/config.ts, db/schema.ts, db/schema.json
-  jiku schema:diff create_users
-  jiku schema:diff                 # auto-derives name from diff
-  jiku schema:diff add_idx --schema src/schema.ts
+  d1-kyt init                        # auto-detect dir (db/ by default)
+  d1-kyt init --dir db               # use db/config.ts, db/schema.ts, db/schema.json
+  d1-kyt schema:diff create_users
+  d1-kyt schema:diff                 # auto-derives name from diff
+  d1-kyt schema:diff add_idx --schema src/schema.ts
 `;
 
-import type { JikuConfig } from './config.js';
+import type { D1KytConfig } from './config.js';
 import { generateMigrationPrefix } from './naming.js';
 import { serializeSchema, diffSnapshots, diffToSQL } from './schema-diff.js';
 import type { SchemaSnapshot, SchemaDiff } from './schema-diff.js';
@@ -77,10 +77,10 @@ function readWranglerConfig(): WranglerD1Config | null {
 // The "dir" is the single folder that holds config.ts, schema.ts, and
 // schema.json.  Resolution order:
 //   1. --dir <path> flag (explicit)
-//   2. Auto-detect an existing config: first jiku/, then parent of
+//   2. Auto-detect an existing config: first d1-kyt/, then parent of
 //      wrangler migrationsDir (if it is not the project root)
 //   3. Derive a sensible default for init: parent of wrangler migrationsDir
-//      (if it has a real parent), otherwise "jiku"
+//      (if it has a real parent), otherwise "d1-kyt"
 // ----------------------------------------------------------------------------
 
 const CONFIG_FILE = 'config.ts';
@@ -114,8 +114,8 @@ function findExistingDir(dirFlag?: string): string | null {
   const defaultDir = resolve(process.cwd(), 'db');
   if (existsSync(join(defaultDir, CONFIG_FILE))) return defaultDir;
 
-  // 2. Legacy jiku/config.ts
-  const legacy = resolve(process.cwd(), 'jiku');
+  // 2. Legacy d1-kyt/config.ts
+  const legacy = resolve(process.cwd(), 'd1-kyt');
   if (existsSync(join(legacy, CONFIG_FILE))) return legacy;
 
   // 3. Parent of wrangler migrations dir (e.g. src/ for src/migrations/)
@@ -143,7 +143,7 @@ function defaultInitDir(dirFlag?: string): string {
   return resolve(process.cwd(), 'db');
 }
 
-async function readJikuConfig(dir: string): Promise<JikuConfig | null> {
+async function readD1KytConfig(dir: string): Promise<D1KytConfig | null> {
   const configPath = join(dir, CONFIG_FILE);
   if (!existsSync(configPath)) return null;
   try {
@@ -180,7 +180,7 @@ function cmdInit(dirFlag?: string): void {
   if (!existsSync(configPath)) {
     writeFileSync(
       configPath,
-      `import { defineConfig } from 'jiku/config';\n\nexport default defineConfig({\n  migrationsDir: '${migrationsDir}',\n  namingStrategy: 'sequential',\n});\n`,
+      `import { defineConfig } from 'd1-kyt/config';\n\nexport default defineConfig({\n  migrationsDir: '${migrationsDir}',\n  namingStrategy: 'sequential',\n});\n`,
     );
     console.log(`Created: ${relDir}/${CONFIG_FILE}`);
   } else {
@@ -192,7 +192,7 @@ function cmdInit(dirFlag?: string): void {
   if (!existsSync(schemaPath)) {
     writeFileSync(
       schemaPath,
-      `import { defineTable, defineIndex, withDefault } from 'jiku';\nimport { createQueryBuilder } from 'jiku';\nimport * as v from 'valibot';\n\n// Define your tables here, then run: jiku schema:diff <name>\n//\n// export const users = defineTable('users', {\n//   email:  v.string(),                                          // TEXT NOT NULL\n//   name:   v.nullable(v.string()),                             // TEXT (nullable)\n//   age:    v.nullable(v.pipe(v.number(), v.integer())),        // INTEGER (nullable)\n//   active: withDefault(v.boolean(), false),                    // INTEGER NOT NULL DEFAULT 0\n//   prefs:  v.nullable(v.object({ theme: v.string() })),       // TEXT JSON (nullable)\n// });\n//\n// export const usersEmailIdx = defineIndex(users, ['email'], { unique: true });\n\n// Add each table to DB, then use \`db\` for type-safe query building.\nexport type DB = {\n  // users: typeof users.$inferSelect;\n};\n\nexport const db = createQueryBuilder<DB>();\n`,
+      `import { defineTable, defineIndex, withDefault } from 'd1-kyt';\nimport { createQueryBuilder } from 'd1-kyt';\nimport * as v from 'valibot';\n\n// Define your tables here, then run: d1-kyt schema:diff <name>\n//\n// export const users = defineTable('users', {\n//   email:  v.string(),                                          // TEXT NOT NULL\n//   name:   v.nullable(v.string()),                             // TEXT (nullable)\n//   age:    v.nullable(v.pipe(v.number(), v.integer())),        // INTEGER (nullable)\n//   active: withDefault(v.boolean(), false),                    // INTEGER NOT NULL DEFAULT 0\n//   prefs:  v.nullable(v.object({ theme: v.string() })),       // TEXT JSON (nullable)\n// });\n//\n// export const usersEmailIdx = defineIndex(users, ['email'], { unique: true });\n\n// Add each table to DB, then use \`db\` for type-safe query building.\nexport type DB = {\n  // users: typeof users.$inferSelect;\n};\n\nexport const db = createQueryBuilder<DB>();\n`,
     );
     console.log(`Created: ${relDir}/${SCHEMA_FILE}`);
   } else {
@@ -211,7 +211,7 @@ function cmdInit(dirFlag?: string): void {
 
   console.log(`\nNext steps:`);
   console.log(`  1. Edit:  ${relDir}/${SCHEMA_FILE}`);
-  console.log(`  2. Diff:  jiku schema:diff <name>`);
+  console.log(`  2. Diff:  d1-kyt schema:diff <name>`);
   console.log(`  3. Apply: wrangler d1 migrations apply <db> --local`);
 }
 
@@ -222,12 +222,12 @@ async function cmdSchemaDiff(
 ): Promise<void> {
   const dir = findExistingDir(dirFlag);
   if (!dir) {
-    console.error('Error: jiku not initialized. Run "jiku init" first.');
+    console.error('Error: d1-kyt not initialized. Run "d1-kyt init" first.');
     if (dirFlag) console.error(`       (looked in: ${dirFlag})`);
     process.exit(1);
   }
 
-  const config = await readJikuConfig(dir);
+  const config = await readD1KytConfig(dir);
   if (!config) {
     console.error(`Error: Could not load config from ${join(dir, CONFIG_FILE)}`);
     process.exit(1);
@@ -295,7 +295,7 @@ async function cmdSchemaDiff(
 
   const filename = `${prefix}_${snakeName}.sql`;
   const sql =
-    `-- Generated by jiku schema:diff\n` +
+    `-- Generated by d1-kyt schema:diff\n` +
     `-- ${new Date().toISOString()}\n\n` +
     `${statements.join('\n\n')}\n`;
 
@@ -310,7 +310,7 @@ async function cmdSchemaDiff(
   // Write schema.sql (full DDL from empty → current)
   const fullStatements = diffToSQL(diffSnapshots({ version: 1, tables: {} }, currentSnapshot));
   const schemaSql =
-    `-- Generated by jiku schema:diff\n` +
+    `-- Generated by d1-kyt schema:diff\n` +
     `-- Full schema as of: ${new Date().toISOString()}\n\n` +
     `${fullStatements.join('\n\n')}\n`;
   writeFileSync(join(dir, SCHEMA_SQL_FILE), schemaSql);

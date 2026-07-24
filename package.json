@@ -1,12 +1,12 @@
 {
-  "name": "@sher/jiku",
+  "name": "d1-kyt",
   "version": "0.11.0-rc.1",
   "description": "Opinionated Cloudflare D1 + Kysely toolkit",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "jiku": "dist/cli.js"
+    "d1-kyt": "dist/cli.js"
   },
   "exports": {
     ".": {

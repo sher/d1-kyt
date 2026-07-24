@@ -1,9 +1,9 @@
-# jiku
+# d1-kyt
 
 Type-safe [Cloudflare D1](https://developers.cloudflare.com/d1/) toolkit built on [Kysely](https://kysely.dev/) and [Valibot](https://valibot.dev/). Define your schema once in Valibot — get SQL migrations and fully-typed queries with no code generation.
 
 ```typescript
-import { defineTable, defineIndex, withDefault, InferDB, createQueryBuilder, queryAll, queryFirst } from 'jiku';
+import { defineTable, defineIndex, withDefault, InferDB, createQueryBuilder, queryAll, queryFirst } from 'd1-kyt';
 import * as v from 'valibot';
 
 export const users = defineTable('users', {
@@ -47,7 +47,7 @@ const popular = await queryFirst(
 ## Install
 
 ```bash
-npm install jiku kysely valibot
+npm install d1-kyt kysely valibot
 ```
 
 ## Workflow
@@ -57,7 +57,7 @@ schema.ts  →  schema:diff  →  .sql migration  →  wrangler apply  →  type
 ```
 
 1. Define tables with Valibot types in `schema.ts`
-2. Run `jiku schema:diff <name>` — diffs against a snapshot, writes a `.sql` migration
+2. Run `d1-kyt schema:diff <name>` — diffs against a snapshot, writes a `.sql` migration
 3. Apply with `wrangler d1 migrations apply <db> --local`
 4. Use `$inferSelect` / `$inferInsert` from your schema for typed queries
 
@@ -66,8 +66,8 @@ schema.ts  →  schema:diff  →  .sql migration  →  wrangler apply  →  type
 ## Quick start
 
 ```bash
-jiku init                              # scaffold config + schema in db/
-jiku schema:diff create_posts          # generates db/migrations/0001_create_posts.sql
+d1-kyt init                              # scaffold config + schema in db/
+d1-kyt schema:diff create_posts          # generates db/migrations/0001_create_posts.sql
 wrangler d1 migrations apply <db> --local
 ```
 
@@ -175,8 +175,8 @@ Columns are type-checked against the table definition at compile time.
 ## CLI
 
 ```bash
-jiku init [--dir <dir>]
-jiku schema:diff <name> [--dir <dir>] [--schema <path>]
+d1-kyt init [--dir <dir>]
+d1-kyt schema:diff <name> [--dir <dir>] [--schema <path>]
 ```
 
 **Always commit `schema.json` alongside each `.sql` migration** — it is the diff baseline.
@@ -185,7 +185,7 @@ jiku schema:diff <name> [--dir <dir>] [--schema <path>]
 
 ```typescript
 // db/config.ts
-import { defineConfig } from 'jiku';
+import { defineConfig } from 'd1-kyt';
 
 export default defineConfig({
   migrationsDir: 'db/migrations',
@@ -197,7 +197,7 @@ export default defineConfig({
 
 ## D1 limits
 
-jiku enforces D1's hard limits at runtime and emits warnings in generated migrations:
+d1-kyt enforces D1's hard limits at runtime and emits warnings in generated migrations:
 
 | Limit | Value |
 |-------|-------|
@@ -208,8 +208,8 @@ jiku enforces D1's hard limits at runtime and emits warnings in generated migrat
 Custom validators:
 
 ```typescript
-import { D1_VALIDATORS, runValidators } from 'jiku';
-import type { QueryValidator } from 'jiku';
+import { D1_VALIDATORS, runValidators } from 'd1-kyt';
+import type { QueryValidator } from 'd1-kyt';
 
 const noDrops: QueryValidator = (q) => {
   if (q.sql.includes('DROP')) throw new Error('DROP not allowed');

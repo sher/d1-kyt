@@ -29,7 +29,7 @@ export type {
 
 // config
 export { defineConfig } from './config.js';
-export type { JikuConfig, NamingStrategy } from './config.js';
+export type { D1KytConfig, NamingStrategy } from './config.js';
 
 // validators
 export { d1MaxParams, d1MaxSqlLength, D1_VALIDATORS, runValidators } from './validators.js';
