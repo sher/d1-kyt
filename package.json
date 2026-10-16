@@ -1,6 +1,6 @@
 {
   "name": "d1-kyt",
-  "version": "0.11.0-rc.1",
+  "version": "0.11.0",
   "description": "Opinionated Cloudflare D1 + Kysely toolkit",
   "type": "module",
   "main": "dist/index.js",
@@ -23,6 +23,9 @@
     "src",
     "skills"
   ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
