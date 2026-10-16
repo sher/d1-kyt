@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.0 (2026-10-16)
+
+**Release**: Stable release of 0.11.0-rc.1. No library code changes.
+- Bump dev deps: TypeScript 7.0.2, vitest 5.0.5, kysely 0.29.6, valibot 1.5.0, @types/node 26.6.5.
+
 ## 0.11.0-rc.1 (2026-07-24)
 
 **Feature** — `defineVirtualTable`: typed, migration-free views over real tables.
