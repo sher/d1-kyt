@@ -1,55 +1,9 @@
 {
-  "name": "d1-kyt",
-  "version": "0.11.0",
-  "description": "Opinionated Cloudflare D1 + Kysely toolkit",
-  "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "bin": {
-    "d1-kyt": "dist/cli.js"
-  },
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./migrate": {
-      "types": "./dist/migrate.d.ts",
-      "import": "./dist/migrate.js"
-    }
-  },
-  "files": [
-    "dist",
-    "src",
-    "skills"
-  ],
+  "name": "kyt",
+  "private": true,
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
-    "test": "vitest",
-    "lint": "echo noop",
-    "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm build"
-  },
-  "keywords": [
-    "cloudflare",
-    "d1",
-    "kysely",
-    "sqlite",
-    "workers",
-    "valibot"
-  ],
-  "author": "sher",
-  "license": "MIT",
-  "peerDependencies": {
-    "kysely": ">=0.27.0",
-    "valibot": ">=1.0.0"
-  },
-  "devDependencies": {
-    "@types/node": "26.6.5",
-    "kysely": "0.29.6",
-    "typescript": "7.0.2",
-    "valibot": "1.5.0",
-    "vitest": "5.0.5"
+    "build": "pnpm -r build",
+    "test": "pnpm -r exec vitest run",
+    "typecheck": "pnpm -r typecheck"
   }
 }
