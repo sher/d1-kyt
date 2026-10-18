@@ -1,44 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as v from 'valibot';
 import { freshDb } from '../test/pg.js';
+import { expectedFrom, sorted } from '../test/columns.js';
 import { defineTable, defineIndex, defineTrigger, withDefault } from './schema.js';
-import type { PgType } from './schema.js';
 import { serializeSchema, EMPTY_SNAPSHOT } from './snapshot.js';
 import type { SchemaSnapshot } from './snapshot.js';
 import { diffSnapshots, applyRenames } from './diff.js';
 import type { Rename } from './diff.js';
 import { diffToSQL } from './sql.js';
-
-const dataTypes: Record<PgType, string> = {
-  text: 'text',
-  uuid: 'uuid',
-  integer: 'integer',
-  bigint: 'bigint',
-  boolean: 'boolean',
-  jsonb: 'jsonb',
-  timestamptz: 'timestamp with time zone',
-  'double precision': 'double precision',
-};
-
-function expectedFrom(snapshot: SchemaSnapshot) {
-  const rows: { table_name: string; column_name: string; data_type: string; is_nullable: string }[] = [];
-  for (const table of Object.values(snapshot.tables)) {
-    for (const col of Object.values(table.columns)) {
-      rows.push({
-        table_name: table.name,
-        column_name: col.name,
-        data_type: dataTypes[col.type],
-        is_nullable: col.notNull ? 'NO' : 'YES',
-      });
-    }
-  }
-  return rows;
-}
-
-function sorted<T extends { table_name: string }>(rows: T[]): T[] {
-  const names = [...new Set(rows.map((r) => r.table_name))].sort();
-  return names.flatMap((n) => rows.filter((r) => r.table_name === n));
-}
 
 function schemaV1() {
   const User = defineTable('User', { email: v.string(), bio: v.nullable(v.string()) });
