@@ -1,0 +1,322 @@
+import type * as v from 'valibot';
+import type { ColumnType, Generated, GeneratedAlways } from 'kysely';
+
+export type PgType =
+  | 'text'
+  | 'uuid'
+  | 'integer'
+  | 'bigint'
+  | 'boolean'
+  | 'jsonb'
+  | 'timestamptz'
+  | 'double precision';
+
+export type IdType = 'bigint' | 'integer' | 'uuid';
+
+export interface TableOptions {
+  primaryKey?: boolean;
+  id?: IdType;
+  createdAt?: boolean;
+  updatedAt?: boolean;
+  primaryKeyColumn?: string;
+  createdAtColumn?: string;
+  updatedAtColumn?: string;
+}
+
+export interface SchemaIndex {
+  readonly _tableName: string;
+  readonly name: string;
+  readonly columns: string[];
+  readonly unique: boolean;
+  readonly where?: string;
+}
+
+export interface SchemaForeignKey {
+  readonly columns: string[];
+  readonly references: SchemaTable<any, any>;
+  readonly refColumns?: string[];
+  readonly onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  readonly onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+}
+
+export interface SchemaTrigger {
+  readonly name: string;
+  readonly timing: 'BEFORE' | 'AFTER';
+  readonly event: 'INSERT' | 'UPDATE' | 'DELETE';
+  readonly tableName: string;
+  readonly body: string;
+}
+
+export interface SqlDefault {
+  readonly _tag: 'sqlDefault';
+  readonly sql: string;
+}
+
+export function sqlDefault(sql: string): SqlDefault {
+  return { _tag: 'sqlDefault', sql };
+}
+
+export interface WithDefault<S extends v.BaseSchema<any, any, any>, D> {
+  readonly _tag: 'withDefault';
+  readonly schema: S;
+  readonly value: D;
+}
+
+export function withDefault<
+  S extends v.BaseSchema<any, any, any>,
+  D extends v.InferOutput<S> | SqlDefault,
+>(schema: S, value: D): WithDefault<S, D> {
+  return { _tag: 'withDefault', schema, value };
+}
+
+export type AnyColSchema =
+  | v.BaseSchema<any, any, any>
+  | WithDefault<v.BaseSchema<any, any, any>, any>;
+
+type PkColName<O extends TableOptions> = O['primaryKeyColumn'] extends string
+  ? O['primaryKeyColumn']
+  : 'id';
+
+type CreatedColName<O extends TableOptions> = O['createdAtColumn'] extends string
+  ? O['createdAtColumn']
+  : 'createdAt';
+
+type UpdatedColName<O extends TableOptions> = O['updatedAtColumn'] extends string
+  ? O['updatedAtColumn']
+  : 'updatedAt';
+
+type IdSelect<O extends TableOptions> = O['id'] extends 'integer'
+  ? number
+  : O['id'] extends 'uuid'
+    ? string
+    : bigint;
+
+type IdKysely<O extends TableOptions> = O['id'] extends 'uuid'
+  ? Generated<string>
+  : GeneratedAlways<IdSelect<O>>;
+
+type AutoColumnsSelect<O extends TableOptions> =
+  (O['primaryKey'] extends false ? object : { [K in PkColName<O>]: IdSelect<O> }) &
+  (O['createdAt'] extends false ? object : { [K in CreatedColName<O>]: Date }) &
+  (O['updatedAt'] extends false ? object : { [K in UpdatedColName<O>]: Date });
+
+type AutoColumnsInsert<O extends TableOptions> =
+  (O['primaryKey'] extends false ? object : { [K in PkColName<O>]?: IdSelect<O> }) &
+  (O['createdAt'] extends false ? object : { [K in CreatedColName<O>]?: Date }) &
+  (O['updatedAt'] extends false ? object : { [K in UpdatedColName<O>]?: Date });
+
+type AutoColumnsKysely<O extends TableOptions> =
+  (O['primaryKey'] extends false ? object : { [K in PkColName<O>]: IdKysely<O> }) &
+  (O['createdAt'] extends false ? object : { [K in CreatedColName<O>]: Generated<Date> }) &
+  (O['updatedAt'] extends false ? object : { [K in UpdatedColName<O>]: Generated<Date> });
+
+type IsJsonOutput<T> =
+  [T] extends [string | number | boolean | bigint | Date | null | undefined] ? false :
+  [T] extends [object] ? true :
+  false;
+
+type ColOutput<S extends AnyColSchema> =
+  S extends WithDefault<infer Inner extends v.BaseSchema<any, any, any>, any>
+    ? v.InferOutput<Inner>
+    : S extends v.BaseSchema<any, any, any>
+      ? v.InferOutput<S>
+      : never;
+
+type IsInsertOptional<S extends AnyColSchema> =
+  S extends WithDefault<any, any>
+    ? true
+    : S extends { type: 'nullable' }
+      ? true
+      : false;
+
+type InferKyselyColumn<S extends AnyColSchema> =
+  S extends WithDefault<infer Inner extends v.BaseSchema<any, any, any>, any>
+    ? IsJsonOutput<v.InferOutput<Inner>> extends true
+      ? ColumnType<v.InferOutput<Inner>, v.InferOutput<Inner> | undefined, v.InferOutput<Inner>>
+      : Generated<v.InferOutput<Inner>>
+    : S extends { type: 'nullable'; wrapped: infer Inner extends v.BaseSchema<any, any, any> }
+      ? v.InferOutput<Inner> | null
+      : S extends v.BaseSchema<any, any, any>
+        ? IsJsonOutput<v.InferOutput<S>> extends true
+          ? ColumnType<v.InferOutput<S>, v.InferOutput<S>, v.InferOutput<S>>
+          : v.InferOutput<S>
+        : never;
+
+export type InferDB<Tables extends Record<string, SchemaTable<any, any>>> = {
+  [K in keyof Tables]: {
+    [C in keyof Tables[K]['_columns']]: InferKyselyColumn<Tables[K]['_columns'][C]>;
+  } & AutoColumnsKysely<Tables[K]['_options']>;
+};
+
+type InferSelect<
+  Cols extends Record<string, AnyColSchema>,
+  O extends TableOptions = object,
+> = {
+  [K in keyof Cols]: ColOutput<Cols[K]>;
+} & AutoColumnsSelect<O>;
+
+type InferInsert<
+  Cols extends Record<string, AnyColSchema>,
+  O extends TableOptions = object,
+> = {
+  [K in keyof Cols as IsInsertOptional<Cols[K]> extends true ? never : K]: ColOutput<Cols[K]>;
+} & {
+  [K in keyof Cols as IsInsertOptional<Cols[K]> extends true ? K : never]?: ColOutput<Cols[K]>;
+} & AutoColumnsInsert<O>;
+
+export interface SchemaTable<
+  Cols extends Record<string, AnyColSchema> = Record<string, AnyColSchema>,
+  O extends TableOptions = object,
+> {
+  readonly _name: string;
+  readonly _columns: Cols;
+  readonly _options: O;
+  readonly _indexes: SchemaIndex[];
+  readonly _triggers: SchemaTrigger[];
+  readonly _foreignKeys: SchemaForeignKey[];
+  readonly _schemaTable: true;
+  $inferSelect: InferSelect<Cols, O>;
+  $inferInsert: InferInsert<Cols, O>;
+}
+
+export interface ColumnTypeInfo {
+  type: PgType;
+  notNull: boolean;
+  default?: string;
+}
+
+function quote(text: string): string {
+  return `'${text.replaceAll("'", "''")}'`;
+}
+
+function renderDefault(def: unknown): string {
+  if (def === null) return 'NULL';
+  if (typeof def === 'string') return quote(def);
+  if (typeof def === 'number' || typeof def === 'bigint') return String(def);
+  if (typeof def === 'boolean') return def ? 'true' : 'false';
+  if (def instanceof Date) return `${quote(def.toISOString())}::timestamptz`;
+  if ((def as SqlDefault)?._tag === 'sqlDefault') return (def as SqlDefault).sql;
+  if (typeof def === 'object') return `${quote(JSON.stringify(def))}::jsonb`;
+  throw new Error(`kyt-pg: unsupported default value of type "${typeof def}"`);
+}
+
+function hasPipeAction(inner: any, type: string): boolean {
+  return (
+    Array.isArray(inner.pipe) &&
+    inner.pipe.some((item: any) => item.type === type && item.kind === 'validation')
+  );
+}
+
+export function pgTypeFromSchema(schema: AnyColSchema): ColumnTypeInfo {
+  if ((schema as any)._tag === 'withDefault') {
+    const wd = schema as WithDefault<v.BaseSchema<any, any, any>, any>;
+    const info = pgTypeFromSchema(wd.schema);
+    return { ...info, default: renderDefault(wd.value) };
+  }
+
+  let nullable = false;
+  let inner: any = schema;
+  if (inner?.type === 'nullable') {
+    nullable = true;
+    inner = inner.wrapped;
+  }
+
+  const notNull = !nullable;
+  switch (inner?.type) {
+    case 'string':
+      return { type: hasPipeAction(inner, 'uuid') ? 'uuid' : 'text', notNull };
+    case 'number':
+      return { type: hasPipeAction(inner, 'integer') ? 'integer' : 'double precision', notNull };
+    case 'bigint':
+      return { type: 'bigint', notNull };
+    case 'boolean':
+      return { type: 'boolean', notNull };
+    case 'object':
+    case 'array':
+      return { type: 'jsonb', notNull };
+    case 'date':
+      return { type: 'timestamptz', notNull };
+    case 'picklist':
+      return { type: 'text', notNull };
+    default:
+      throw new Error(`kyt-pg: unsupported Valibot type "${inner?.type ?? 'unknown'}"`);
+  }
+}
+
+const tableRegistry = new Map<string, SchemaTable<any, any>>();
+
+export function getTableRegistry(): ReadonlyMap<string, SchemaTable<any, any>> {
+  return tableRegistry;
+}
+
+export function defineTable<
+  Cols extends Record<string, AnyColSchema>,
+  O extends TableOptions = object,
+>(
+  name: string,
+  columns: Cols,
+  options?: O & { foreignKeys?: Array<Omit<SchemaForeignKey, 'columns'> & { columns: (keyof Cols & string)[] }> },
+): SchemaTable<Cols, O> {
+  for (const [column, schema] of Object.entries(columns)) {
+    try {
+      pgTypeFromSchema(schema);
+    } catch (error) {
+      const type = (error as Error).message.match(/unsupported Valibot type "(.*)"$/)?.[1];
+      if (type === undefined) throw error;
+      throw new Error(`kyt-pg: column "${name}"."${column}": unsupported Valibot type "${type}"`);
+    }
+  }
+  const table = {
+    _name: name,
+    _columns: columns,
+    _options: (options ?? {}) as O,
+    _indexes: [],
+    _triggers: [],
+    _foreignKeys: [...(options?.foreignKeys ?? [])],
+    _schemaTable: true,
+  } as unknown as SchemaTable<Cols, O>;
+  tableRegistry.set(name, table);
+  return table;
+}
+
+export function defineIndex<Cols extends Record<string, AnyColSchema>>(
+  table: SchemaTable<Cols, any>,
+  columns: (keyof Cols & string)[],
+  options?: { unique?: boolean; name?: string; where?: string },
+): SchemaIndex {
+  const unique = options?.unique ?? false;
+  const suffix = unique ? 'uq' : 'idx';
+  const name = options?.name ?? `${table._name}_${columns.join('_')}_${suffix}`;
+
+  const index: SchemaIndex = {
+    _tableName: table._name,
+    name,
+    columns: columns as string[],
+    unique,
+    where: options?.where,
+  };
+
+  (table._indexes as SchemaIndex[]).push(index);
+  return index;
+}
+
+export function defineTrigger(
+  name: string,
+  options: {
+    timing: 'BEFORE' | 'AFTER';
+    event: 'INSERT' | 'UPDATE' | 'DELETE';
+    on: SchemaTable<any, any>;
+    body: string;
+  },
+): SchemaTrigger {
+  const trigger: SchemaTrigger = {
+    name,
+    timing: options.timing,
+    event: options.event,
+    tableName: options.on._name,
+    body: options.body,
+  };
+
+  (options.on._triggers as SchemaTrigger[]).push(trigger);
+  return trigger;
+}
