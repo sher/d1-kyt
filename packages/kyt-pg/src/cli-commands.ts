@@ -66,6 +66,10 @@ function sameRename(a: Rename, b: Rename): boolean {
   return false;
 }
 
+function renameFlagText(r: Rename): string {
+  return r.kind === 'table' ? `${r.from}=${r.to}` : `${r.table}.${r.from}=${r.to}`;
+}
+
 function findDir(io: CliIO, dirFlag?: string): string | null {
   const dir = resolve(io.cwd, dirFlag ?? DEFAULT_DIR);
   return existsSync(join(dir, CONFIG_FILE)) ? dir : null;
@@ -209,6 +213,13 @@ export async function cmdSchemaDiff(
   if (!columnRenames) return 1;
 
   const renames = [...tableRenames, ...columnRenames];
+  const unmatched = opts.renames.filter((flag) => !renames.some((r) => sameRename(r, flag)));
+  if (unmatched.length > 0) {
+    for (const flag of unmatched) {
+      io.error(`Error: --rename ${renameFlagText(flag)} matches no possible rename. Check the names and run schema:diff again.`);
+    }
+    return 1;
+  }
   const diff = diffSnapshots(applyRenames(prev, renames), next);
   const statements = diffToSQL(diff, renames);
 

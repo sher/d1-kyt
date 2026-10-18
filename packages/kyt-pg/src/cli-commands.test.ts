@@ -105,6 +105,32 @@ describe('cli commands', () => {
     expect(read('db/migrations/0002_alter_user.sql')).toContain('RENAME COLUMN "name" TO "fullName"');
   });
 
+  it('rejects a --rename flag that matches no rename', async () => {
+    await setupV1();
+    const renames = [parseRenameFlag('User.nmae=fullName')];
+    expect(await cmdSchemaDiff(io, { schema: 'db/schema2.ts', renames, noRename: true })).toBe(1);
+    expect(errors).toContain(
+      'Error: --rename User.nmae=fullName matches no possible rename. Check the names and run schema:diff again.',
+    );
+    expect(readdirSync(join(cwd, 'db/migrations'))).toEqual(['0001_create_user.sql']);
+  });
+
+  it('applies a --rename flag together with --no-rename', async () => {
+    await setupV1();
+    const renames = [parseRenameFlag('User.name=fullName')];
+    expect(await cmdSchemaDiff(io, { name: 'alterUser', schema: 'db/schema2.ts', renames, noRename: true })).toBe(0);
+    expect(read('db/migrations/0002_alter_user.sql')).toContain('RENAME COLUMN "name" TO "fullName"');
+  });
+
+  it('writes RENAME TO from a table --rename flag', async () => {
+    writeSchema('name');
+    await cmdSchemaDiff(io, { name: 'createUser', renames: [], noRename: false });
+    writeFileSync(join(cwd, 'db/schema2.ts'), schemaSource('name').replace("defineTable('User'", "defineTable('Account'"));
+    const renames = [parseRenameFlag('User=Account')];
+    expect(await cmdSchemaDiff(io, { name: 'renameUser', schema: 'db/schema2.ts', renames, noRename: false })).toBe(0);
+    expect(read('db/migrations/0002_rename_user.sql')).toContain('ALTER TABLE "User" RENAME TO "Account";');
+  });
+
   it('writes drop and add with --no-rename', async () => {
     await setupV1();
     expect(await cmdSchemaDiff(io, { name: 'alterUser', schema: 'db/schema2.ts', renames: [], noRename: true })).toBe(0);
