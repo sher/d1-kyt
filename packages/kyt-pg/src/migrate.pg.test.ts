@@ -82,4 +82,28 @@ describe('migrate', () => {
     const [r1, r2] = await Promise.all([migrate(sql, { dir, log }), migrate(sql2, { dir, log })]);
     expect([...r1!.applied, ...r2!.applied].sort()).toEqual(['0001_a.sql', '0002_b.sql']);
   });
+
+  it('applies each file one time when the database defaults to serializable', async () => {
+    const name = new URL(fresh.url).pathname.slice(1);
+    await sql.unsafe(`alter database "${name}" set default_transaction_isolation = 'serializable'`);
+    const clients = Array.from({ length: 4 }, () => postgres(fresh.url, { types: { bigint: postgres.BigInt } }));
+    try {
+      const [level] = await clients[0]!`show transaction_isolation`;
+      expect(level!.transaction_isolation).toBe('serializable');
+      let runs: Promise<Awaited<ReturnType<typeof migrate>>[]> | undefined;
+      await sql.begin(async (tx) => {
+        await tx`select pg_advisory_xact_lock(7340225901)`;
+        runs = Promise.all(clients.map((c) => migrate(c, { dir, log })));
+        for (let waiting = 0; waiting < clients.length; ) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          const [row] = await sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted`;
+          waiting = row!.n;
+        }
+      });
+      const results = await runs!;
+      expect(results.flatMap((r) => r.applied).sort()).toEqual(['0001_a.sql', '0002_b.sql']);
+    } finally {
+      await Promise.all(clients.map((c) => c.end()));
+    }
+  });
 });
