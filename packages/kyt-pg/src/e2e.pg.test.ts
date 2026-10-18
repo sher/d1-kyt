@@ -107,4 +107,14 @@ it('goes from schema to typed queries through migrations', async () => {
   expect(row.summary).toBe('hi');
   expect(typeof row.id).toBe('bigint');
   expect(row.createdAt).toBeInstanceOf(Date);
+
+  const qualified = await queryAll(
+    db.sql,
+    qb.selectFrom('PublishedPost').select('PublishedPost.title').compile(),
+  );
+  expect(qualified).toEqual([{ title: 'Shown' }]);
+
+  const aliased = await queryAll(db.sql, qb.selectFrom('PublishedPost as p').selectAll('p').compile());
+  expect(aliased).toHaveLength(1);
+  expect(Object.keys(aliased[0] as object).sort()).toEqual(['authorId', 'createdAt', 'id', 'summary', 'title', 'updatedAt']);
 });

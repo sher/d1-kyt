@@ -42,16 +42,14 @@ function sql(q: { compile(): { sql: string; parameters: readonly unknown[] } }) 
 describe('VirtualTablePlugin', () => {
   it('compiles Postgres placeholders', () => {
     const { sql: s, params } = sql(db.selectFrom('PostForSale').select('itemType').where('priceYen', '<', 5000));
-    expect(s).toBe('select "itemType" from "Post" where "priceYen" < $1 and "Post"."category" = $2');
+    expect(s).toBe('select "itemType" from "Post" as "PostForSale" where "priceYen" < $1 and "PostForSale"."category" = $2');
     expect(params).toEqual([5000, 'for_sale']);
   });
-
 
   it('rewrites FROM virtual table to source table', () => {
     const q = db.selectFrom('PostForSale').selectAll();
     const { sql: s } = sql(q);
-    expect(s).toContain('"Post"');
-    expect(s).not.toContain('"PostForSale"');
+    expect(s).toContain('from "Post" as "PostForSale"');
   });
 
   it('injects WHERE from _where filter', () => {
@@ -111,6 +109,27 @@ describe('VirtualTablePlugin', () => {
     expect(params).toContain('for_sale');
   });
 
+  it('expands selectAll with an alias to the virtual table columns', () => {
+    const { sql: s } = sql(db.selectFrom('PostForSale as p').selectAll('p'));
+    expect(s).toBe(
+      'select "p"."id", "p"."createdAt", "p"."updatedAt", "p"."itemType", "p"."priceYen", "p"."condition", "p"."location" from "Post" as "p" where "p"."category" = $1',
+    );
+  });
+
+  it('expands selectAll with the virtual table name to the virtual table columns', () => {
+    const { sql: s } = sql(db.selectFrom('PostForSale').selectAll('PostForSale'));
+    expect(s).toBe(
+      'select "PostForSale"."id", "PostForSale"."createdAt", "PostForSale"."updatedAt", "PostForSale"."itemType", "PostForSale"."priceYen", "PostForSale"."condition", "PostForSale"."location" from "Post" as "PostForSale" where "PostForSale"."category" = $1',
+    );
+  });
+
+  it('qualifies a column with the virtual table name', () => {
+    const { sql: s } = sql(db.selectFrom('PostForSale').select('PostForSale.itemType'));
+    expect(s).toBe(
+      'select "PostForSale"."itemType" from "Post" as "PostForSale" where "PostForSale"."category" = $1',
+    );
+  });
+
   it('throws when inserting into a virtual table', () => {
     expect(() =>
       (db.insertInto as any)('PostForSale').values({ itemType: 'x' }).compile(),
@@ -153,8 +172,13 @@ describe('VirtualTablePlugin joins', () => {
     const q = db2.selectFrom('ArticleWithAuthor').selectAll();
     const { sql: s } = sql(q);
     expect(s).toContain('inner join "Author"');
-    expect(s).toContain('"Article"."authorId" = "Author"."id"');
-    expect(s).toContain('"Article"."title"');
+    expect(s).toContain('"ArticleWithAuthor"."authorId" = "Author"."id"');
+    expect(s).toContain('"ArticleWithAuthor"."title"');
     expect(s).toContain('"Author"."name"');
+  });
+
+  it('expands selectAll on the joined table to the join columns only', () => {
+    const { sql: s } = sql((db2.selectFrom('ArticleWithAuthor') as any).selectAll('Author'));
+    expect(s).toMatch(/^select "Author"\."name" from "Article"/);
   });
 });
