@@ -1,0 +1,181 @@
+import type { Rename, SchemaDiff, TableChange } from './diff.js';
+import type {
+  ColumnSnapshot,
+  ForeignKeySnapshot,
+  IndexSnapshot,
+  TableSnapshot,
+  TriggerSnapshot,
+} from './snapshot.js';
+
+function q(name: string): string {
+  return `"${name.replaceAll('"', '""')}"`;
+}
+
+function columnSql(col: ColumnSnapshot): string {
+  if (col.primaryKey) {
+    if (col.identity) return `${q(col.name)} ${col.type} GENERATED ALWAYS AS IDENTITY PRIMARY KEY`;
+    const def = col.default !== undefined ? ` DEFAULT ${col.default}` : '';
+    return `${q(col.name)} ${col.type} PRIMARY KEY${def}`;
+  }
+  const notNull = col.notNull ? ' NOT NULL' : '';
+  const def = col.default !== undefined ? ` DEFAULT ${col.default}` : '';
+  return `${q(col.name)} ${col.type}${notNull}${def}`;
+}
+
+function createTableSql(table: TableSnapshot): string {
+  const cols = Object.values(table.columns).map((c) => `  ${columnSql(c)}`);
+  return `CREATE TABLE ${q(table.name)} (\n${cols.join(',\n')}\n);`;
+}
+
+function createIndexSql(table: string, idx: IndexSnapshot): string {
+  const unique = idx.unique ? 'UNIQUE ' : '';
+  const cols = idx.columns.map(q).join(', ');
+  const where = idx.where !== undefined ? ` WHERE ${idx.where}` : '';
+  return `CREATE ${unique}INDEX ${q(idx.name)} ON ${q(table)} (${cols})${where};`;
+}
+
+function fkName(table: string, fk: ForeignKeySnapshot): string {
+  return `${table}_${fk.columns.join('_')}_fkey`;
+}
+
+function addForeignKeySql(table: string, fk: ForeignKeySnapshot): string {
+  const onDelete = fk.onDelete ? ` ON DELETE ${fk.onDelete}` : '';
+  const onUpdate = fk.onUpdate ? ` ON UPDATE ${fk.onUpdate}` : '';
+  return (
+    `ALTER TABLE ${q(table)} ADD CONSTRAINT ${q(fkName(table, fk))} ` +
+    `FOREIGN KEY (${fk.columns.map(q).join(', ')}) ` +
+    `REFERENCES ${q(fk.refTable)}(${fk.refColumns.map(q).join(', ')})${onDelete}${onUpdate};`
+  );
+}
+
+function dropForeignKeySql(table: string, fk: ForeignKeySnapshot): string {
+  return `ALTER TABLE ${q(table)} DROP CONSTRAINT IF EXISTS ${q(fkName(table, fk))};`;
+}
+
+function createTriggerSql(trigger: TriggerSnapshot, table: string): string[] {
+  const ret = trigger.event === 'DELETE' ? 'OLD' : 'NEW';
+  const fn = q(`${trigger.name}_fn`);
+  return [
+    `CREATE OR REPLACE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$\nBEGIN\n  ${trigger.body}\n  RETURN ${ret};\nEND $$;`,
+    `CREATE TRIGGER ${q(trigger.name)} ${trigger.timing} ${trigger.event} ON ${q(table)} FOR EACH ROW EXECUTE FUNCTION ${fn}();`,
+  ];
+}
+
+function dropTriggerSql(trigger: TriggerSnapshot, table: string): string[] {
+  return [
+    `DROP TRIGGER IF EXISTS ${q(trigger.name)} ON ${q(table)};`,
+    `DROP FUNCTION IF EXISTS ${q(`${trigger.name}_fn`)}();`,
+  ];
+}
+
+function columnChangeSql(change: TableChange, out: string[]): void {
+  const t = change.name;
+  const alter = `ALTER TABLE ${q(t)}`;
+  let primaryKeyWarned = false;
+  for (const { name, before, after } of change.columns) {
+    if (!before && after) {
+      if (after.notNull && after.default === undefined && !after.identity) {
+        out.push(
+          `-- WARNING: adds NOT NULL column "${t}"."${name}" with no default. This fails if the table has rows. Add a default, or add the column as nullable and fill it first.`,
+        );
+      }
+      out.push(`${alter} ADD COLUMN ${columnSql(after)};`);
+    } else if (before && !after) {
+      out.push(
+        `-- WARNING: drops column "${t}"."${name}" and its data. If this is a rename, run schema:diff again and answer yes.`,
+      );
+      out.push(`${alter} DROP COLUMN ${q(name)};`);
+    } else if (before && after) {
+      if (before.type !== after.type) {
+        out.push(
+          `-- WARNING: changes "${t}"."${name}" from ${before.type} to ${after.type}. This fails if any row cannot be cast. Change the USING part if needed.`,
+        );
+        out.push(
+          `${alter} ALTER COLUMN ${q(name)} TYPE ${after.type} USING ${q(name)}::${after.type};`,
+        );
+      }
+      if (!before.notNull && after.notNull) {
+        out.push(
+          `-- WARNING: makes "${t}"."${name}" NOT NULL. This fails if any row holds NULL. Fill those rows first.`,
+        );
+        out.push(`${alter} ALTER COLUMN ${q(name)} SET NOT NULL;`);
+      } else if (before.notNull && !after.notNull) {
+        out.push(`${alter} ALTER COLUMN ${q(name)} DROP NOT NULL;`);
+      }
+      if (before.default !== after.default) {
+        out.push(
+          after.default !== undefined
+            ? `${alter} ALTER COLUMN ${q(name)} SET DEFAULT ${after.default};`
+            : `${alter} ALTER COLUMN ${q(name)} DROP DEFAULT;`,
+        );
+      }
+      const keyChanged = Boolean(before.primaryKey) !== Boolean(after.primaryKey) || Boolean(before.identity) !== Boolean(after.identity);
+      if (keyChanged && !primaryKeyWarned) {
+        primaryKeyWarned = true;
+        out.push(
+          `-- WARNING: the primary key of "${t}" changed. kyt-pg does not write this change. Write it by hand.`,
+        );
+      }
+    }
+  }
+}
+
+export function diffToSQL(diff: SchemaDiff, renames: Rename[] = []): string[] {
+  const out: string[] = [];
+
+  for (const r of renames) {
+    out.push(
+      r.kind === 'table'
+        ? `ALTER TABLE ${q(r.from)} RENAME TO ${q(r.to)};`
+        : `ALTER TABLE ${q(r.table)} RENAME COLUMN ${q(r.from)} TO ${q(r.to)};`,
+    );
+  }
+
+  for (const table of diff.addedTables) {
+    out.push(createTableSql(table));
+    for (const idx of Object.values(table.indexes)) out.push(createIndexSql(table.name, idx));
+  }
+
+  for (const change of diff.changedTables) {
+    columnChangeSql(change, out);
+    for (const fk of change.foreignKeys) {
+      if (fk.before) out.push(dropForeignKeySql(change.name, fk.before));
+    }
+    for (const idx of change.indexes) {
+      if (idx.before) out.push(`DROP INDEX IF EXISTS ${q(idx.before.name)};`);
+      if (idx.after) out.push(createIndexSql(change.name, idx.after));
+    }
+    for (const trg of change.triggers) {
+      if (trg.before) out.push(...dropTriggerSql(trg.before, change.name));
+    }
+  }
+
+  for (const table of diff.addedTables) {
+    for (const fk of Object.values(table.foreignKeys)) out.push(addForeignKeySql(table.name, fk));
+  }
+  for (const change of diff.changedTables) {
+    for (const fk of change.foreignKeys) {
+      if (fk.after) out.push(addForeignKeySql(change.name, fk.after));
+    }
+  }
+
+  for (const table of diff.addedTables) {
+    for (const trg of Object.values(table.triggers)) out.push(...createTriggerSql(trg, table.name));
+  }
+  for (const change of diff.changedTables) {
+    for (const trg of change.triggers) {
+      if (trg.after) out.push(...createTriggerSql(trg.after, change.name));
+    }
+  }
+
+  if (diff.droppedTables.length > 0) {
+    for (const table of diff.droppedTables) {
+      out.push(
+        `-- WARNING: drops table "${table.name}" and all its rows. Keep this only if the data is not needed.`,
+      );
+    }
+    out.push(`DROP TABLE ${diff.droppedTables.map((t) => q(t.name)).join(', ')};`);
+  }
+
+  return out;
+}
