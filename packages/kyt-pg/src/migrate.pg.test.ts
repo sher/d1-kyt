@@ -72,7 +72,7 @@ describe('migrate', () => {
   });
 
   it('leaves nothing behind when a file fails', async () => {
-    writeFileSync(join(dir, '0003_bad.sql'), 'create table "C" ("id" bigint);\nselect from nowhere_table;\n');
+    writeFileSync(join(dir, '0003_bad.sql'), 'create table "C" ("id" bigint);\nselect from "NowhereTable";\n');
     await expect(migrate(sql, { dir, log })).rejects.toThrow();
     const [r] = await sql`select to_regclass('"C"') as c, (select count(*) from "KytMigration" where "name" = '0003_bad.sql')::int as n`;
     expect(r).toEqual({ c: null, n: 0 });

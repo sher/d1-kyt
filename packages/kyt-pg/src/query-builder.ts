@@ -8,10 +8,6 @@ import {
 import type { VirtualTable } from './virtual-table.js';
 import { VirtualTablePlugin } from './virtual-table.js';
 
-/**
- * Creates a Kysely query builder for Postgres.
- * It uses DummyDriver, so it only compiles queries. The app runs them with postgres.js.
- */
 export function createQueryBuilder<DB>(virtualTables?: VirtualTable<any, any>[]): Kysely<DB> {
   const plugins = virtualTables && virtualTables.length > 0
     ? [new VirtualTablePlugin(virtualTables)]
