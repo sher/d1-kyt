@@ -26,26 +26,26 @@ describe('diffSnapshots', () => {
   const empty = EMPTY_SNAPSHOT;
 
   it('detects added table', () => {
-    const users = defineTable('diff_add', { email: v.string() });
+    const users = defineTable('Account', { email: v.string() });
     const next = serializeSchema({ users });
     const diff = diffSnapshots(empty, next);
     expect(diff.addedTables).toHaveLength(1);
-    expect(diff.addedTables[0].name).toBe('diff_add');
+    expect(diff.addedTables[0].name).toBe('Account');
     expect(diff.droppedTables).toHaveLength(0);
     expect(diff.changedTables).toHaveLength(0);
   });
 
   it('detects dropped table', () => {
-    const users = defineTable('diff_drop', { email: v.string() });
+    const users = defineTable('Invoice', { email: v.string() });
     const prev = serializeSchema({ users });
     const diff = diffSnapshots(prev, empty);
     expect(diff.droppedTables).toHaveLength(1);
-    expect(diff.droppedTables[0].name).toBe('diff_drop');
+    expect(diff.droppedTables[0].name).toBe('Invoice');
     expect(diff.addedTables).toHaveLength(0);
   });
 
   it('detects no changes when snapshot is identical', () => {
-    const users = defineTable('diff_same', { email: v.string() });
+    const users = defineTable('Profile', { email: v.string() });
     const snap = serializeSchema({ users });
     const diff = diffSnapshots(snap, snap);
     expect(diff.addedTables).toHaveLength(0);
@@ -54,8 +54,8 @@ describe('diffSnapshots', () => {
   });
 
   it('detects added column', () => {
-    const v1 = defineTable('diff_col_add', { title: v.string() });
-    const v2 = defineTable('diff_col_add', { title: v.string(), body: v.nullable(v.string()) });
+    const v1 = defineTable('Article', { title: v.string() });
+    const v2 = defineTable('Article', { title: v.string(), body: v.nullable(v.string()) });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
     const diff = diffSnapshots(prev, next);
@@ -64,8 +64,8 @@ describe('diffSnapshots', () => {
   });
 
   it('detects dropped column', () => {
-    const v1 = defineTable('diff_col_drop', { title: v.string(), body: v.nullable(v.string()) });
-    const v2 = defineTable('diff_col_drop', { title: v.string() });
+    const v1 = defineTable('Comment', { title: v.string(), body: v.nullable(v.string()) });
+    const v2 = defineTable('Comment', { title: v.string() });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
     const diff = diffSnapshots(prev, next);
@@ -74,18 +74,18 @@ describe('diffSnapshots', () => {
   });
 
   it('detects modified column (type change)', () => {
-    const v1 = defineTable('diff_col_mod', { status: v.string() });
+    const v1 = defineTable('Order', { status: v.string() });
     const prev = serializeSchema({ t: v1 });
     const next = JSON.parse(JSON.stringify(prev)) as SchemaSnapshot;
-    next.tables['diff_col_mod'].columns['status'].type = 'integer';
+    next.tables['Order'].columns['status'].type = 'integer';
     const diff = diffSnapshots(prev, next);
     const modified = diff.changedTables[0]?.columns.filter((c) => c.before && c.after);
     expect(modified?.some((c) => c.name === 'status')).toBe(true);
   });
 
   it('detects added index', () => {
-    const v1 = defineTable('diff_idx_add', { email: v.string() });
-    const v2 = defineTable('diff_idx_add', { email: v.string() });
+    const v1 = defineTable('Member', { email: v.string() });
+    const v2 = defineTable('Member', { email: v.string() });
     defineIndex(v2, ['email'], { unique: true });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
@@ -95,9 +95,9 @@ describe('diffSnapshots', () => {
   });
 
   it('detects dropped index', () => {
-    const v1 = defineTable('diff_idx_drop', { email: v.string() });
+    const v1 = defineTable('Device', { email: v.string() });
     defineIndex(v1, ['email'], { unique: true });
-    const v2 = defineTable('diff_idx_drop', { email: v.string() });
+    const v2 = defineTable('Device', { email: v.string() });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
     const diff = diffSnapshots(prev, next);
@@ -106,15 +106,15 @@ describe('diffSnapshots', () => {
   });
 
   it('includes prevTable and nextTable on changed tables', () => {
-    const v1 = defineTable('diff_refs', { title: v.string() });
-    const v2 = defineTable('diff_refs', { title: v.string(), body: v.nullable(v.string()) });
+    const v1 = defineTable('Review', { title: v.string() });
+    const v2 = defineTable('Review', { title: v.string(), body: v.nullable(v.string()) });
     const prev = serializeSchema({ t: v1 });
     const next = serializeSchema({ t: v2 });
     const diff = diffSnapshots(prev, next);
     const changed = diff.changedTables[0];
     expect(changed?.prevTable).toBeDefined();
     expect(changed?.nextTable).toBeDefined();
-    expect(changed?.prevTable.name).toBe('diff_refs');
+    expect(changed?.prevTable.name).toBe('Review');
     expect(changed?.nextTable.columns['body']).toBeDefined();
   });
 });
