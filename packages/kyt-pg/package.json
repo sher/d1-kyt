@@ -1,0 +1,59 @@
+{
+  "name": "kyt-pg",
+  "version": "0.1.0",
+  "description": "Opinionated Postgres + Kysely toolkit",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "kyt-pg": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./migrate": {
+      "types": "./dist/migrate.d.ts",
+      "import": "./dist/migrate.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run --project unit",
+    "test:pg": "vitest run --project pg",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "postgres",
+    "kysely",
+    "valibot"
+  ],
+  "author": "sher",
+  "license": "MIT",
+  "peerDependencies": {
+    "kysely": ">=0.27.0",
+    "postgres": ">=3.4.0",
+    "valibot": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "postgres": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "12.2.1",
+    "@types/node": "26.6.5",
+    "kysely": "0.29.6",
+    "postgres": "3.4.9",
+    "typescript": "7.0.2",
+    "valibot": "1.5.0",
+    "vitest": "5.0.5"
+  }
+}
