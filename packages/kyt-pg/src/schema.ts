@@ -1,5 +1,6 @@
 import type * as v from 'valibot';
 import type { ColumnType, Generated, GeneratedAlways } from 'kysely';
+import type { VirtualTable } from './virtual-table.js';
 
 export type PgType =
   | 'text'
@@ -142,20 +143,20 @@ type InferKyselyColumn<S extends AnyColSchema> =
           : v.InferOutput<S>
         : never;
 
-export type InferDB<Tables extends Record<string, SchemaTable<any, any>>> = {
+export type InferDB<Tables extends Record<string, SchemaTable<any, any> | VirtualTable<any, any>>> = {
   [K in keyof Tables]: {
     [C in keyof Tables[K]['_columns']]: InferKyselyColumn<Tables[K]['_columns'][C]>;
   } & AutoColumnsKysely<Tables[K]['_options']>;
 };
 
-type InferSelect<
+export type InferSelect<
   Cols extends Record<string, AnyColSchema>,
   O extends TableOptions = object,
 > = {
   [K in keyof Cols]: ColOutput<Cols[K]>;
 } & AutoColumnsSelect<O>;
 
-type InferInsert<
+export type InferInsert<
   Cols extends Record<string, AnyColSchema>,
   O extends TableOptions = object,
 > = {
