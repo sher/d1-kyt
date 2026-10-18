@@ -91,7 +91,7 @@ describe('serializeSchema', () => {
       foreignKeys: [{ columns: ['userId'], references: User, onDelete: 'CASCADE' }],
     });
     expect(serializeSchema({ User, Post }).tables.Post.foreignKeys.userId).toEqual({
-      columns: ['userId'], refTable: 'User', refColumns: ['id'], onDelete: 'CASCADE',
+      name: 'Post_userId_fkey', columns: ['userId'], refTable: 'User', refColumns: ['id'], onDelete: 'CASCADE',
     });
   });
 

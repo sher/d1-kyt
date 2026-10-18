@@ -34,22 +34,22 @@ function createIndexSql(table: string, idx: IndexSnapshot): string {
   return `CREATE ${unique}INDEX ${q(idx.name)} ON ${q(table)} (${cols})${where};`;
 }
 
-function fkName(table: string, fk: ForeignKeySnapshot): string {
-  return `${table}_${fk.columns.join('_')}_fkey`;
+function sameForeignKey(a: ForeignKeySnapshot, b: ForeignKeySnapshot): boolean {
+  return JSON.stringify({ ...a, name: '' }) === JSON.stringify({ ...b, name: '' });
 }
 
 function addForeignKeySql(table: string, fk: ForeignKeySnapshot): string {
   const onDelete = fk.onDelete ? ` ON DELETE ${fk.onDelete}` : '';
   const onUpdate = fk.onUpdate ? ` ON UPDATE ${fk.onUpdate}` : '';
   return (
-    `ALTER TABLE ${q(table)} ADD CONSTRAINT ${q(fkName(table, fk))} ` +
+    `ALTER TABLE ${q(table)} ADD CONSTRAINT ${q(fk.name)} ` +
     `FOREIGN KEY (${fk.columns.map(q).join(', ')}) ` +
     `REFERENCES ${q(fk.refTable)}(${fk.refColumns.map(q).join(', ')})${onDelete}${onUpdate};`
   );
 }
 
 function dropForeignKeySql(table: string, fk: ForeignKeySnapshot): string {
-  return `ALTER TABLE ${q(table)} DROP CONSTRAINT IF EXISTS ${q(fkName(table, fk))};`;
+  return `ALTER TABLE ${q(table)} DROP CONSTRAINT ${q(fk.name)};`;
 }
 
 function createTriggerSql(trigger: TriggerSnapshot, table: string): string[] {
@@ -137,10 +137,17 @@ export function diffToSQL(diff: SchemaDiff, renames: Rename[] = []): string[] {
   }
 
   for (const change of diff.changedTables) {
-    columnChangeSql(change, out);
     for (const fk of change.foreignKeys) {
-      if (fk.before) out.push(dropForeignKeySql(change.name, fk.before));
+      if (!fk.before) continue;
+      if (fk.after && sameForeignKey(fk.before, fk.after)) {
+        out.push(
+          `ALTER TABLE ${q(change.name)} RENAME CONSTRAINT ${q(fk.before.name)} TO ${q(fk.after.name)};`,
+        );
+      } else {
+        out.push(dropForeignKeySql(change.name, fk.before));
+      }
     }
+    columnChangeSql(change, out);
     for (const idx of change.indexes) {
       if (idx.before) out.push(`DROP INDEX IF EXISTS ${q(idx.before.name)};`);
       if (idx.after) out.push(createIndexSql(change.name, idx.after));
@@ -155,7 +162,7 @@ export function diffToSQL(diff: SchemaDiff, renames: Rename[] = []): string[] {
   }
   for (const change of diff.changedTables) {
     for (const fk of change.foreignKeys) {
-      if (fk.after) out.push(addForeignKeySql(change.name, fk.after));
+      if (fk.after && !(fk.before && sameForeignKey(fk.before, fk.after))) out.push(addForeignKeySql(change.name, fk.after));
     }
   }
 

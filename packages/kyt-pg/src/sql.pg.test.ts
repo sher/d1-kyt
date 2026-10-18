@@ -197,3 +197,82 @@ describe('column and table changes on Postgres', () => {
     }
   });
 });
+
+describe('foreign keys after renames on Postgres', () => {
+  function build(tableName: string, column: string, onDelete?: 'CASCADE' | 'SET NULL', withFk = true) {
+    const User = defineTable('User', { email: v.string() });
+    const Child = defineTable(
+      tableName,
+      { [column]: v.nullable(v.bigint()) },
+      withFk ? { foreignKeys: [{ columns: [column], references: User, ...(onDelete ? { onDelete } : {}) }] } : {},
+    );
+    return serializeSchema({ User, Child });
+  }
+
+  async function migrate(sql: typeof db.sql, prev: SchemaSnapshot, next: SchemaSnapshot, renames: Rename[] = []) {
+    const out = diffToSQL(diffSnapshots(applyRenames(prev, renames), next), renames);
+    await sql.unsafe(out.join('\n')).simple();
+  }
+
+  async function fkCount(sql: typeof db.sql, table: string) {
+    const [row] = await sql`select count(*)::int as n from pg_constraint where conrelid = ${`"${table}"`}::regclass and contype = 'f'`;
+    return row.n as number;
+  }
+
+  async function cascades(sql: typeof db.sql, table: string, column: string) {
+    const [user] = await sql`insert into "User" ("email") values (${`${table}@x.io`}) returning "id"`;
+    await sql.unsafe(`insert into "${table}" ("${column}") values (${user.id})`);
+    await sql`delete from "User" where "id" = ${user.id}`;
+    const [row] = await sql.unsafe(`select count(*)::int as n from "${table}"`);
+    return row.n === 0;
+  }
+
+  it('changes onDelete after a table rename', async () => {
+    const fresh = await freshDb();
+    try {
+      const v1 = build('Post', 'authorId');
+      const v2 = build('Article', 'authorId');
+      const v3 = build('Article', 'authorId', 'CASCADE');
+      await migrate(fresh.sql, EMPTY_SNAPSHOT, v1);
+      await migrate(fresh.sql, v1, v2, [{ kind: 'table', from: 'Post', to: 'Article' }]);
+      expect(await fkCount(fresh.sql, 'Article')).toBe(1);
+      await migrate(fresh.sql, v2, v3);
+      expect(await fkCount(fresh.sql, 'Article')).toBe(1);
+      expect(await cascades(fresh.sql, 'Article', 'authorId')).toBe(true);
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  it('changes onDelete after a column rename', async () => {
+    const fresh = await freshDb();
+    try {
+      const v1 = build('Post', 'writerId');
+      const v2 = build('Post', 'authorId');
+      const v3 = build('Post', 'authorId', 'CASCADE');
+      await migrate(fresh.sql, EMPTY_SNAPSHOT, v1);
+      await migrate(fresh.sql, v1, v2, [{ kind: 'column', table: 'Post', from: 'writerId', to: 'authorId' }]);
+      expect(await fkCount(fresh.sql, 'Post')).toBe(1);
+      await migrate(fresh.sql, v2, v3);
+      expect(await fkCount(fresh.sql, 'Post')).toBe(1);
+      expect(await cascades(fresh.sql, 'Post', 'authorId')).toBe(true);
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  it('drops the foreign key after a table rename', async () => {
+    const fresh = await freshDb();
+    try {
+      const v1 = build('Post', 'authorId');
+      const v2 = build('Article', 'authorId');
+      const v3 = build('Article', 'authorId', undefined, false);
+      await migrate(fresh.sql, EMPTY_SNAPSHOT, v1);
+      await migrate(fresh.sql, v1, v2, [{ kind: 'table', from: 'Post', to: 'Article' }]);
+      await migrate(fresh.sql, v2, v3);
+      expect(await fkCount(fresh.sql, 'Article')).toBe(0);
+    } finally {
+      await fresh.close();
+    }
+  });
+});

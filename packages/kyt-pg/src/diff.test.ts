@@ -143,9 +143,9 @@ describe('renames', () => {
 
   it('moves foreign keys that point at a renamed table', () => {
     const prev = snap({ Person: { id: 'bigint' }, Post: { authorId: 'bigint' } });
-    prev.tables.Post.foreignKeys.authorId = { columns: ['authorId'], refTable: 'Person', refColumns: ['id'] };
+    prev.tables.Post.foreignKeys.authorId = { name: 'Post_authorId_fkey', columns: ['authorId'], refTable: 'Person', refColumns: ['id'] };
     const next = snap({ User: { id: 'bigint' }, Post: { authorId: 'bigint' } });
-    next.tables.Post.foreignKeys.authorId = { columns: ['authorId'], refTable: 'User', refColumns: ['id'] };
+    next.tables.Post.foreignKeys.authorId = { name: 'Post_authorId_fkey', columns: ['authorId'], refTable: 'User', refColumns: ['id'] };
     const renamed = applyRenames(prev, [{ kind: 'table', from: 'Person', to: 'User' }]);
     expect(renamed.tables.Post.foreignKeys.authorId.refTable).toBe('User');
     expect(Object.keys(renamed.tables)).toEqual(['User', 'Post']);
@@ -163,16 +163,17 @@ describe('renames', () => {
   it('renames a column in indexes and foreign keys, and moves the key', () => {
     const prev = snap({ User: { id: 'bigint' }, Post: { writer: 'bigint' } });
     prev.tables.Post.indexes.i = { name: 'i', columns: ['writer'], unique: false };
-    prev.tables.Post.foreignKeys.writer = { columns: ['writer'], refTable: 'User', refColumns: ['id'] };
+    prev.tables.Post.foreignKeys.writer = { name: 'Post_writer_fkey', columns: ['writer'], refTable: 'User', refColumns: ['id'] };
     const renamed = applyRenames(prev, [
       { kind: 'column', table: 'Post', from: 'writer', to: 'authorId' },
       { kind: 'column', table: 'User', from: 'id', to: 'uid' },
     ]);
     expect(renamed.tables.Post.indexes.i.columns).toEqual(['authorId']);
     expect(renamed.tables.Post.foreignKeys).toEqual({
-      authorId: { columns: ['authorId'], refTable: 'User', refColumns: ['uid'] },
+      authorId: { name: 'Post_writer_fkey', columns: ['authorId'], refTable: 'User', refColumns: ['uid'] },
     });
     expect(Object.keys(renamed.tables.User.columns)).toEqual(['uid']);
+    expect(renamed.tables.Post.foreignKeys.authorId.name).toBe('Post_writer_fkey');
   });
 
   it('does not change its input', () => {

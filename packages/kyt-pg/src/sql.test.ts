@@ -97,7 +97,7 @@ describe('new tables', () => {
     const next = snap(
       table('Post', [idCol, col('authorId', { type: 'bigint' })], {
         foreignKeys: {
-          authorId: { columns: ['authorId'], refTable: 'User', refColumns: ['id'], onDelete: 'CASCADE', onUpdate: 'RESTRICT' },
+          authorId: { name: 'Post_authorId_fkey', columns: ['authorId'], refTable: 'User', refColumns: ['id'], onDelete: 'CASCADE', onUpdate: 'RESTRICT' },
         },
       }),
     );
@@ -109,7 +109,7 @@ describe('new tables', () => {
   it('writes a foreign key without actions and with two columns', () => {
     const next = snap(
       table('Line', [col('a'), col('b')], {
-        foreignKeys: { 'a,b': { columns: ['a', 'b'], refTable: 'Pair', refColumns: ['x', 'y'] } },
+        foreignKeys: { 'a,b': { name: 'Line_a_b_fkey', columns: ['a', 'b'], refTable: 'Pair', refColumns: ['x', 'y'] } },
       }),
     );
     expect(run(EMPTY_SNAPSHOT, next)[1]).toBe(
@@ -183,14 +183,41 @@ describe('indexes and foreign keys on changed tables', () => {
   });
 
   it('drops a foreign key before index changes and adds one after', () => {
-    const fk = { columns: ['authorId'], refTable: 'User', refColumns: ['id'] };
+    const fk = { name: 'Post_authorId_fkey', columns: ['authorId'], refTable: 'User', refColumns: ['id'] };
     const cols = [idCol, col('authorId', { type: 'bigint' })];
     const prev = snap(table('Post', cols, { foreignKeys: { authorId: fk } }));
     const next = snap(table('Post', cols, { foreignKeys: { authorId: { ...fk, onDelete: 'CASCADE' } } }));
     expect(run(prev, next)).toEqual([
-      'ALTER TABLE "Post" DROP CONSTRAINT IF EXISTS "Post_authorId_fkey";',
+      'ALTER TABLE "Post" DROP CONSTRAINT "Post_authorId_fkey";',
       'ALTER TABLE "Post" ADD CONSTRAINT "Post_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "User"("id") ON DELETE CASCADE;',
     ]);
+  });
+});
+
+describe('foreign key names', () => {
+  const cols = [idCol, col('authorId', { type: 'bigint' })];
+  const fk = { name: 'Old_authorId_fkey', columns: ['authorId'], refTable: 'User', refColumns: ['id'] };
+
+  it('writes only RENAME CONSTRAINT when the name alone changes', () => {
+    const prev = snap(table('Post', cols, { foreignKeys: { authorId: fk } }));
+    const next = snap(table('Post', cols, { foreignKeys: { authorId: { ...fk, name: 'Post_authorId_fkey' } } }));
+    expect(run(prev, next)).toEqual([
+      'ALTER TABLE "Post" RENAME CONSTRAINT "Old_authorId_fkey" TO "Post_authorId_fkey";',
+    ]);
+  });
+
+  it('drops a foreign key by its stored name', () => {
+    const prev = snap(table('Post', cols, { foreignKeys: { authorId: fk } }));
+    expect(run(prev, snap(table('Post', cols)))).toEqual([
+      'ALTER TABLE "Post" DROP CONSTRAINT "Old_authorId_fkey";',
+    ]);
+  });
+
+  it('drops a foreign key before dropping its column', () => {
+    const prev = snap(table('Post', cols, { foreignKeys: { authorId: fk } }));
+    const out = run(prev, snap(table('Post', [idCol])));
+    expect(out[0]).toBe('ALTER TABLE "Post" DROP CONSTRAINT "Old_authorId_fkey";');
+    expect(out[out.length - 1]).toBe('ALTER TABLE "Post" DROP COLUMN "authorId";');
   });
 });
 

@@ -26,6 +26,7 @@ export interface TriggerSnapshot {
 }
 
 export interface ForeignKeySnapshot {
+  name: string;
   columns: string[];
   refTable: string;
   refColumns: string[];
@@ -128,6 +129,7 @@ export function serializeSchema(exports: Record<string, unknown>): SchemaSnapsho
       const refColumns = fk.refColumns ?? (refPk ? [refPk] : []);
       if (refColumns.length === 0) continue;
       const snap: ForeignKeySnapshot = {
+        name: `${table._name}_${fk.columns.join('_')}_fkey`,
         columns: fk.columns,
         refTable: fk.references._name,
         refColumns,
