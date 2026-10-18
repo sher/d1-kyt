@@ -298,6 +298,16 @@ describe('column changes', () => {
     ]);
   });
 
+  it('writes no column statements for a primary key that changes type', () => {
+    const prev = snap(table('User', [idCol]));
+    const next = snap(
+      table('User', [col('id', { type: 'uuid', primaryKey: true, default: 'gen_random_uuid()' })]),
+    );
+    expect(run(prev, next)).toEqual([
+      '-- WARNING: the primary key of "User" changed. kyt-pg does not write this change. Write it by hand.',
+    ]);
+  });
+
   it('writes only a warning when identity changes', () => {
     const prev = snap(table('User', [col('id', { type: 'bigint', primaryKey: true })]));
     const next = snap(table('User', [idCol]));

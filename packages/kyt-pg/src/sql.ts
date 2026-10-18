@@ -86,6 +86,16 @@ function columnChangeSql(change: TableChange, out: string[]): void {
       );
       out.push(`${alter} DROP COLUMN ${q(name)};`);
     } else if (before && after) {
+      const keyChanged = Boolean(before.primaryKey) !== Boolean(after.primaryKey) || Boolean(before.identity) !== Boolean(after.identity);
+      if (keyChanged) {
+        if (!primaryKeyWarned) {
+          primaryKeyWarned = true;
+          out.push(
+            `-- WARNING: the primary key of "${t}" changed. kyt-pg does not write this change. Write it by hand.`,
+          );
+        }
+        continue;
+      }
       if (before.type !== after.type) {
         out.push(
           `-- WARNING: changes "${t}"."${name}" from ${before.type} to ${after.type}. This fails if any row cannot be cast. Change the USING part if needed.`,
@@ -107,13 +117,6 @@ function columnChangeSql(change: TableChange, out: string[]): void {
           after.default !== undefined
             ? `${alter} ALTER COLUMN ${q(name)} SET DEFAULT ${after.default};`
             : `${alter} ALTER COLUMN ${q(name)} DROP DEFAULT;`,
-        );
-      }
-      const keyChanged = Boolean(before.primaryKey) !== Boolean(after.primaryKey) || Boolean(before.identity) !== Boolean(after.identity);
-      if (keyChanged && !primaryKeyWarned) {
-        primaryKeyWarned = true;
-        out.push(
-          `-- WARNING: the primary key of "${t}" changed. kyt-pg does not write this change. Write it by hand.`,
         );
       }
     }
