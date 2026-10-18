@@ -16,3 +16,4 @@ First release.
 - `migrate` refuses a new file that holds `BEGIN`, `COMMIT`, `END`, `ROLLBACK` or `START TRANSACTION`.
 - Dropping a table also drops its trigger functions.
 - A default that cannot be written, such as `NaN` or a `bigint` inside jsonb, fails with the table and column name.
+- Foreign keys take `deferrable: 'immediate' | 'deferred'`. A change to only that setting becomes `ALTER CONSTRAINT`.

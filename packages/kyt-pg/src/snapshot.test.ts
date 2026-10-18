@@ -103,6 +103,18 @@ describe('serializeSchema', () => {
     expect(serializeSchema({ Post }).tables.Post.foreignKeys.userId.refColumns).toEqual(['pk']);
   });
 
+  it('keeps the deferrable setting of a foreign key', () => {
+    const User = defineTable('User', { email: v.string() });
+    const Post = defineTable('Post', { userId: v.bigint() }, {
+      foreignKeys: [{ columns: ['userId'], references: User, deferrable: 'deferred' }],
+    });
+    expect(serializeSchema({ User, Post }).tables.Post.foreignKeys.userId).toEqual({
+      name: 'Post_userId_fkey', columns: ['userId'], refTable: 'User', refColumns: ['id'], deferrable: 'deferred',
+    });
+    const Plain = defineTable('Plain', { userId: v.bigint() }, { foreignKeys: [{ columns: ['userId'], references: User }] });
+    expect('deferrable' in serializeSchema({ Plain }).tables.Plain.foreignKeys.userId!).toBe(false);
+  });
+
   it('skips a foreign key with no refColumns and no primary key', () => {
     const User = defineTable('User', { email: v.string() }, { primaryKey: false });
     const Post = defineTable('Post', { userId: v.bigint() }, {

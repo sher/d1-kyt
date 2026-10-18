@@ -247,3 +247,67 @@ describe('foreign keys after renames on Postgres', () => {
     }
   });
 });
+
+describe('deferrable foreign keys on Postgres', () => {
+  function build(deferrable?: 'immediate' | 'deferred') {
+    const User = defineTable('User', { email: v.string() });
+    const Item = defineTable('Item', { userId: v.bigint() }, {
+      foreignKeys: [{ columns: ['userId'], references: User, ...(deferrable ? { deferrable } : {}) }],
+    });
+    return serializeSchema({ User, Item });
+  }
+
+  async function childFirst(sql: Awaited<ReturnType<typeof freshDb>>['sql'], setDeferred = false) {
+    await sql.begin(async (tx) => {
+      if (setDeferred) await tx`set constraints all deferred`;
+      await tx`insert into "Item" ("userId") values (999)`;
+      await tx`insert into "User" ("id", "email") overriding system value values (999, 'a@x.io')`;
+    });
+  }
+
+  async function withSchema(snapshot: SchemaSnapshot, fn: (sql: Awaited<ReturnType<typeof freshDb>>['sql']) => Promise<void>) {
+    const fresh = await freshDb();
+    try {
+      await fresh.sql.unsafe(diffToSQL(diffSnapshots(EMPTY_SNAPSHOT, snapshot)).join('\n')).simple();
+      await fn(fresh.sql);
+    } finally {
+      await fresh.close();
+    }
+  }
+
+  it('lets a deferred key accept a child before its parent in one transaction', async () => {
+    await withSchema(build('deferred'), async (sql) => {
+      await childFirst(sql);
+      const [row] = await sql`select count(*)::int as n from "Item"`;
+      expect(row!.n).toBe(1);
+    });
+  });
+
+  it('still rejects a missing parent at commit', async () => {
+    await withSchema(build('deferred'), async (sql) => {
+      await expect(sql.begin((tx) => tx`insert into "Item" ("userId") values (999)`)).rejects.toThrow(/foreign key/);
+    });
+  });
+
+  it('lets an immediate key wait only after SET CONSTRAINTS', async () => {
+    await withSchema(build('immediate'), async (sql) => {
+      await expect(childFirst(sql)).rejects.toThrow(/foreign key/);
+      await childFirst(sql, true);
+    });
+  });
+
+  it('rejects a child first when the key is not deferrable', async () => {
+    await withSchema(build(), async (sql) => {
+      await expect(childFirst(sql, true)).rejects.toThrow(/foreign key/);
+    });
+  });
+
+  it('changes a key to deferred in place', async () => {
+    await withSchema(build(), async (sql) => {
+      const [before] = await sql`select oid from pg_constraint where conname = 'Item_userId_fkey'`;
+      await sql.unsafe(diffToSQL(diffSnapshots(build(), build('deferred'))).join('\n')).simple();
+      const [after] = await sql`select oid, condeferrable, condeferred from pg_constraint where conname = 'Item_userId_fkey'`;
+      expect(after).toEqual({ oid: before!.oid, condeferrable: true, condeferred: true });
+    });
+  });
+});

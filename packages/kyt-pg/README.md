@@ -116,6 +116,28 @@ There is no setting for this in `config.ts`. Types cannot read a config file.
 
 Other table options are `primaryKey`, `createdAt`, `updatedAt`, `primaryKeyColumn`, `createdAtColumn` and `updatedAtColumn`.
 
+## Foreign keys
+
+A foreign key takes `columns`, `references`, and the optional `refColumns`, `onDelete`, `onUpdate` and `deferrable`.
+
+```ts
+const Item = defineTable('Item', { orderId: v.bigint() }, {
+  foreignKeys: [{ columns: ['orderId'], references: Order, deferrable: 'deferred' }],
+});
+```
+
+`deferrable` decides when Postgres checks the key:
+
+| Value | SQL | When Postgres checks |
+|---|---|---|
+| not set | `NOT DEFERRABLE` | after each statement |
+| `'immediate'` | `DEFERRABLE INITIALLY IMMEDIATE` | after each statement, unless the transaction runs `set constraints all deferred` |
+| `'deferred'` | `DEFERRABLE INITIALLY DEFERRED` | at commit |
+
+A deferred key lets one transaction insert rows in any order, such as a child before its parent. A row with no parent still fails at commit.
+
+If you change only `deferrable`, `schema:diff` writes `ALTER CONSTRAINT`. It does not drop and add the key again.
+
 ## Naming style
 
 Name tables in PascalCase and in the singular, like `User` and `PublishedPost`. Name columns in camelCase, like `fullName`.

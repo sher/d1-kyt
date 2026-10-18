@@ -35,16 +35,25 @@ function createIndexSql(table: string, idx: IndexSnapshot): string {
 }
 
 function sameForeignKey(a: ForeignKeySnapshot, b: ForeignKeySnapshot): boolean {
-  return JSON.stringify({ ...a, name: '' }) === JSON.stringify({ ...b, name: '' });
+  const { name: _a, deferrable: _da, ...restA } = a;
+  const { name: _b, deferrable: _db, ...restB } = b;
+  return JSON.stringify(restA) === JSON.stringify(restB);
+}
+
+function deferrableSql(deferrable: ForeignKeySnapshot['deferrable']): string {
+  if (deferrable === 'deferred') return 'DEFERRABLE INITIALLY DEFERRED';
+  if (deferrable === 'immediate') return 'DEFERRABLE INITIALLY IMMEDIATE';
+  return 'NOT DEFERRABLE';
 }
 
 function addForeignKeySql(table: string, fk: ForeignKeySnapshot): string {
   const onDelete = fk.onDelete ? ` ON DELETE ${fk.onDelete}` : '';
   const onUpdate = fk.onUpdate ? ` ON UPDATE ${fk.onUpdate}` : '';
+  const deferrable = fk.deferrable ? ` ${deferrableSql(fk.deferrable)}` : '';
   return (
     `ALTER TABLE ${q(table)} ADD CONSTRAINT ${q(fk.name)} ` +
     `FOREIGN KEY (${fk.columns.map(q).join(', ')}) ` +
-    `REFERENCES ${q(fk.refTable)}(${fk.refColumns.map(q).join(', ')})${onDelete}${onUpdate};`
+    `REFERENCES ${q(fk.refTable)}(${fk.refColumns.map(q).join(', ')})${onDelete}${onUpdate}${deferrable};`
   );
 }
 
@@ -143,9 +152,14 @@ export function diffToSQL(diff: SchemaDiff, renames: Rename[] = []): string[] {
     for (const fk of change.foreignKeys) {
       if (!fk.before) continue;
       if (fk.after && sameForeignKey(fk.before, fk.after)) {
-        out.push(
-          `ALTER TABLE ${q(change.name)} RENAME CONSTRAINT ${q(fk.before.name)} TO ${q(fk.after.name)};`,
-        );
+        if (fk.before.name !== fk.after.name) {
+          out.push(
+            `ALTER TABLE ${q(change.name)} RENAME CONSTRAINT ${q(fk.before.name)} TO ${q(fk.after.name)};`,
+          );
+        }
+        if (fk.before.deferrable !== fk.after.deferrable) {
+          out.push(`ALTER TABLE ${q(change.name)} ALTER CONSTRAINT ${q(fk.after.name)} ${deferrableSql(fk.after.deferrable)};`);
+        }
       } else {
         out.push(dropForeignKeySql(change.name, fk.before));
       }

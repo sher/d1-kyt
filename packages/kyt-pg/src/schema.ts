@@ -38,6 +38,7 @@ export interface SchemaForeignKey {
   readonly refColumns?: string[];
   readonly onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
   readonly onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  readonly deferrable?: 'immediate' | 'deferred';
 }
 
 export interface SchemaTrigger {

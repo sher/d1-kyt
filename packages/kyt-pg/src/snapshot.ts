@@ -32,6 +32,7 @@ export interface ForeignKeySnapshot {
   refColumns: string[];
   onDelete?: string;
   onUpdate?: string;
+  deferrable?: 'immediate' | 'deferred';
 }
 
 export interface TableSnapshot {
@@ -136,6 +137,7 @@ export function serializeSchema(exports: Record<string, unknown>): SchemaSnapsho
       };
       if (fk.onDelete) snap.onDelete = fk.onDelete;
       if (fk.onUpdate) snap.onUpdate = fk.onUpdate;
+      if (fk.deferrable) snap.deferrable = fk.deferrable;
       foreignKeys[fk.columns.join(',')] = snap;
     }
 

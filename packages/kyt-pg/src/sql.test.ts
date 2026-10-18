@@ -221,6 +221,50 @@ describe('foreign key names', () => {
   });
 });
 
+describe('deferrable foreign keys', () => {
+  const cols = [idCol, col('authorId', { type: 'bigint' })];
+  const fk = { name: 'Post_authorId_fkey', columns: ['authorId'], refTable: 'User', refColumns: ['id'] };
+  const withFk = (extra: object) => snap(table('Post', cols, { foreignKeys: { authorId: { ...fk, ...extra } } }));
+
+  it('writes DEFERRABLE INITIALLY DEFERRED', () => {
+    expect(run(snap(table('Post', cols)), withFk({ deferrable: 'deferred' }))).toEqual([
+      'ALTER TABLE "Post" ADD CONSTRAINT "Post_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "User"("id") DEFERRABLE INITIALLY DEFERRED;',
+    ]);
+  });
+
+  it('writes DEFERRABLE INITIALLY IMMEDIATE after ON DELETE', () => {
+    expect(run(snap(table('Post', cols)), withFk({ onDelete: 'CASCADE', deferrable: 'immediate' }))).toEqual([
+      'ALTER TABLE "Post" ADD CONSTRAINT "Post_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "User"("id") ON DELETE CASCADE DEFERRABLE INITIALLY IMMEDIATE;',
+    ]);
+  });
+
+  it('writes ALTER CONSTRAINT when only the deferrable setting changes', () => {
+    expect(run(withFk({}), withFk({ deferrable: 'deferred' }))).toEqual([
+      'ALTER TABLE "Post" ALTER CONSTRAINT "Post_authorId_fkey" DEFERRABLE INITIALLY DEFERRED;',
+    ]);
+    expect(run(withFk({ deferrable: 'deferred' }), withFk({ deferrable: 'immediate' }))).toEqual([
+      'ALTER TABLE "Post" ALTER CONSTRAINT "Post_authorId_fkey" DEFERRABLE INITIALLY IMMEDIATE;',
+    ]);
+    expect(run(withFk({ deferrable: 'immediate' }), withFk({}))).toEqual([
+      'ALTER TABLE "Post" ALTER CONSTRAINT "Post_authorId_fkey" NOT DEFERRABLE;',
+    ]);
+  });
+
+  it('renames, then alters, when the name and the deferrable setting change', () => {
+    expect(run(withFk({ name: 'Old_authorId_fkey' }), withFk({ deferrable: 'deferred' }))).toEqual([
+      'ALTER TABLE "Post" RENAME CONSTRAINT "Old_authorId_fkey" TO "Post_authorId_fkey";',
+      'ALTER TABLE "Post" ALTER CONSTRAINT "Post_authorId_fkey" DEFERRABLE INITIALLY DEFERRED;',
+    ]);
+  });
+
+  it('drops and adds when another part changes too', () => {
+    expect(run(withFk({}), withFk({ onDelete: 'CASCADE', deferrable: 'deferred' }))).toEqual([
+      'ALTER TABLE "Post" DROP CONSTRAINT "Post_authorId_fkey";',
+      'ALTER TABLE "Post" ADD CONSTRAINT "Post_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "User"("id") ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;',
+    ]);
+  });
+});
+
 describe('column changes', () => {
   const base = (c: ColumnSnapshot) => snap(table('User', [idCol, c]));
 
