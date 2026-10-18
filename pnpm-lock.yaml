@@ -8,7 +8,7 @@ importers:
 
   .: {}
 
-  packages/d1-kyt:
+  packages/kyt-d1:
     devDependencies:
       '@types/node':
         specifier: 26.6.5

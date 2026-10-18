@@ -1,9 +1,11 @@
-# d1-kyt
+# kyt-d1
+
+> kyt-d1 is the new name of `d1-kyt`. To move, run `npm uninstall d1-kyt && npm install kyt-d1`, then change your imports from `'d1-kyt'` to `'kyt-d1'`. The `d1-kyt` command still works, as another name for `kyt-d1`.
 
 Type-safe [Cloudflare D1](https://developers.cloudflare.com/d1/) toolkit built on [Kysely](https://kysely.dev/) and [Valibot](https://valibot.dev/). Define your schema once in Valibot — get SQL migrations and fully-typed queries with no code generation.
 
 ```typescript
-import { defineTable, defineIndex, withDefault, InferDB, createQueryBuilder, queryAll, queryFirst } from 'd1-kyt';
+import { defineTable, defineIndex, withDefault, InferDB, createQueryBuilder, queryAll, queryFirst } from 'kyt-d1';
 import * as v from 'valibot';
 
 export const users = defineTable('users', {
@@ -47,7 +49,7 @@ const popular = await queryFirst(
 ## Install
 
 ```bash
-npm install d1-kyt kysely valibot
+npm install kyt-d1 kysely valibot
 ```
 
 ## Workflow
@@ -57,7 +59,7 @@ schema.ts  →  schema:diff  →  .sql migration  →  wrangler apply  →  type
 ```
 
 1. Define tables with Valibot types in `schema.ts`
-2. Run `d1-kyt schema:diff <name>` — diffs against a snapshot, writes a `.sql` migration
+2. Run `kyt-d1 schema:diff <name>` — diffs against a snapshot, writes a `.sql` migration
 3. Apply with `wrangler d1 migrations apply <db> --local`
 4. Use `$inferSelect` / `$inferInsert` from your schema for typed queries
 
@@ -66,8 +68,8 @@ schema.ts  →  schema:diff  →  .sql migration  →  wrangler apply  →  type
 ## Quick start
 
 ```bash
-d1-kyt init                              # scaffold config + schema in db/
-d1-kyt schema:diff create_posts          # generates db/migrations/0001_create_posts.sql
+kyt-d1 init                              # scaffold config + schema in db/
+kyt-d1 schema:diff create_posts          # generates db/migrations/0001_create_posts.sql
 wrangler d1 migrations apply <db> --local
 ```
 
@@ -175,8 +177,8 @@ Columns are type-checked against the table definition at compile time.
 ## CLI
 
 ```bash
-d1-kyt init [--dir <dir>]
-d1-kyt schema:diff <name> [--dir <dir>] [--schema <path>]
+kyt-d1 init [--dir <dir>]
+kyt-d1 schema:diff <name> [--dir <dir>] [--schema <path>]
 ```
 
 **Always commit `schema.json` alongside each `.sql` migration** — it is the diff baseline.
@@ -185,7 +187,7 @@ d1-kyt schema:diff <name> [--dir <dir>] [--schema <path>]
 
 ```typescript
 // db/config.ts
-import { defineConfig } from 'd1-kyt';
+import { defineConfig } from 'kyt-d1';
 
 export default defineConfig({
   migrationsDir: 'db/migrations',
@@ -197,7 +199,7 @@ export default defineConfig({
 
 ## D1 limits
 
-d1-kyt enforces D1's hard limits at runtime and emits warnings in generated migrations:
+kyt-d1 enforces D1's hard limits at runtime and emits warnings in generated migrations:
 
 | Limit | Value |
 |-------|-------|
@@ -208,8 +210,8 @@ d1-kyt enforces D1's hard limits at runtime and emits warnings in generated migr
 Custom validators:
 
 ```typescript
-import { D1_VALIDATORS, runValidators } from 'd1-kyt';
-import type { QueryValidator } from 'd1-kyt';
+import { D1_VALIDATORS, runValidators } from 'kyt-d1';
+import type { QueryValidator } from 'kyt-d1';
 
 const noDrops: QueryValidator = (q) => {
   if (q.sql.includes('DROP')) throw new Error('DROP not allowed');

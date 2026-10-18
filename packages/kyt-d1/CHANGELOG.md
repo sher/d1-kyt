@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.0 (2026-10-18)
+
+**Rename**: `d1-kyt` is now `kyt-d1`, in the `sher/kyt` repo. No library code changes.
+- Install `kyt-d1` and change imports from `'d1-kyt'` to `'kyt-d1'`.
+- The command is now `kyt-d1`. `d1-kyt` still works as another name for it.
+- The config type is now `KytD1Config`. `D1KytConfig` still works, and is deprecated.
+- `kyt-d1 init` now writes `import { defineConfig } from 'kyt-d1'`. It wrote `'d1-kyt/config'` before, which the package never exported.
+- `kyt-d1 --version` now reads the version from `package.json`.
+
 ## 0.11.0 (2026-10-18)
 
 **Release**: Stable release of 0.11.0-rc.1, with three virtual table fixes.

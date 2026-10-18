@@ -1,6 +1,6 @@
 {
   "name": "kyt-pg",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Opinionated Postgres + Kysely toolkit",
   "type": "module",
   "main": "dist/index.js",
@@ -43,6 +43,11 @@
   ],
   "author": "sher",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sher/kyt.git",
+    "directory": "packages/kyt-pg"
+  },
   "peerDependencies": {
     "kysely": ">=0.27.0",
     "postgres": ">=3.4.0",
