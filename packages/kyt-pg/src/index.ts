@@ -5,3 +5,4 @@ export * from './executor.js';
 export * from './snapshot.js';
 export * from './diff.js';
 export * from './sql.js';
+export * from './config.js';
