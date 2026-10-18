@@ -43,8 +43,7 @@ describe('VirtualTablePlugin', () => {
   it('rewrites FROM virtual table to source table', () => {
     const q = db.selectFrom('PostForSale').selectAll();
     const { sql: s } = sql(q);
-    expect(s).toContain('"Post"');
-    expect(s).not.toContain('"PostForSale"');
+    expect(s).toContain('from "Post" as "PostForSale"');
   });
 
   it('injects WHERE from _where filter', () => {
@@ -146,8 +145,90 @@ describe('VirtualTablePlugin joins', () => {
     const q = db2.selectFrom('ArticleWithAuthor').selectAll();
     const { sql: s } = sql(q);
     expect(s).toContain('inner join "vtp_author"');
-    expect(s).toContain('"vtp_article"."authorId" = "vtp_author"."id"');
-    expect(s).toContain('"vtp_article"."title"');
+    expect(s).toContain('"ArticleWithAuthor"."authorId" = "vtp_author"."id"');
+    expect(s).toContain('"ArticleWithAuthor"."title"');
     expect(s).toContain('"vtp_author"."name"');
+  });
+});
+
+describe('VirtualTablePlugin qualified selections', () => {
+  const Article = defineTable('Article', {
+    title: v.string(),
+    secret: v.string(),
+    authorId: v.pipe(v.number(), v.integer()),
+  });
+  const Author = defineTable('Author', {
+    name: v.string(),
+    email: v.string(),
+  });
+  const ArticleCard = defineVirtualTable('ArticleCard', Article, ['title'], {
+    joins: [{ table: Author, on: ['authorId', 'id'], columns: ['name'], type: 'inner' }],
+  });
+
+  type DB3 = InferDB<{ Article: typeof Article; Author: typeof Author; ArticleCard: typeof ArticleCard }>;
+  const db3 = createQueryBuilder<DB3>([ArticleCard]);
+
+  const cardColumns = '"a"."id", "a"."createdAt", "a"."updatedAt", "a"."title", "Author"."name"';
+
+  function withData<T>(fn: (rows: (q: { compile(): { sql: string; parameters: readonly unknown[] } }) => unknown[]) => T): T {
+    const { DatabaseSync } = require('node:sqlite') as typeof import('node:sqlite');
+    const sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(`
+      CREATE TABLE "Author" ("id" INTEGER PRIMARY KEY, "name" TEXT NOT NULL, "email" TEXT NOT NULL, "createdAt" TEXT, "updatedAt" TEXT);
+      CREATE TABLE "Article" ("id" INTEGER PRIMARY KEY, "title" TEXT NOT NULL, "secret" TEXT NOT NULL, "authorId" INTEGER NOT NULL, "createdAt" TEXT, "updatedAt" TEXT);
+      INSERT INTO "Author" ("id", "name", "email") VALUES (1, 'Ada', 'ada@x.io');
+      INSERT INTO "Article" ("id", "title", "secret", "authorId") VALUES (1, 'Hello', 'hidden', 1);
+    `);
+    try {
+      return fn((q) => {
+        const c = q.compile();
+        return sqlite.prepare(c.sql).all(...(c.parameters as any[]));
+      });
+    } finally {
+      sqlite.close();
+    }
+  }
+
+  it('joins with a single ON that SQLite accepts', () => {
+    const { sql: s } = sql(db3.selectFrom('ArticleCard').selectAll());
+    expect(s).toBe(
+      'select "ArticleCard"."id", "ArticleCard"."createdAt", "ArticleCard"."updatedAt", "ArticleCard"."title", "Author"."name" ' +
+        'from "Article" as "ArticleCard" inner join "Author" on "ArticleCard"."authorId" = "Author"."id"',
+    );
+    withData((rows) => {
+      expect(rows(db3.selectFrom('ArticleCard').select(['title', 'name']))).toEqual([{ title: 'Hello', name: 'Ada' }]);
+    });
+  });
+
+  it('limits selectAll on an alias to the virtual table columns', () => {
+    const q = db3.selectFrom('ArticleCard as a').selectAll('a');
+    expect(sql(q).sql).toBe(
+      `select ${cardColumns} from "Article" as "a" inner join "Author" on "a"."authorId" = "Author"."id"`,
+    );
+    withData((rows) => {
+      const [row] = rows(q) as Record<string, unknown>[];
+      expect(Object.keys(row).sort()).toEqual(['createdAt', 'id', 'name', 'title', 'updatedAt']);
+    });
+  });
+
+  it('limits selectAll on the virtual table name to its columns', () => {
+    const q = (db3.selectFrom('ArticleCard') as any).selectAll('ArticleCard');
+    expect(sql(q).sql).not.toContain('.*');
+    expect(sql(q).sql).not.toContain('"secret"');
+  });
+
+  it('limits selectAll on a joined table to the join columns', () => {
+    const q = (db3.selectFrom('ArticleCard') as any).selectAll('Author');
+    expect(sql(q).sql).toMatch(/^select "Author"\."name" from "Article" as "ArticleCard"/);
+    withData((rows) => {
+      expect(rows(q)).toEqual([{ name: 'Ada' }]);
+    });
+  });
+
+  it('runs a column named with the virtual table name', () => {
+    const q = db3.selectFrom('ArticleCard').select('ArticleCard.title');
+    withData((rows) => {
+      expect(rows(q)).toEqual([{ title: 'Hello' }]);
+    });
   });
 });

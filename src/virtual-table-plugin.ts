@@ -9,7 +9,6 @@ import {
   IdentifierNode,
   InsertQueryNode,
   JoinNode,
-  OnNode,
   OperationNodeTransformer,
   OperatorNode,
   ReferenceNode,
@@ -46,7 +45,7 @@ class VirtualTableTransformer extends OperationNodeTransformer {
 
     if (!ref) return super.transformSelectQuery(node);
     const { vt } = ref;
-    const primaryRef = ref.alias ?? vt._source._name;
+    const primaryRef = ref.alias ?? vt._name;
 
     const newFroms = node.from.froms.map(f =>
       this.matchVt(f) ? this.buildPrimaryFrom(vt, ref!.alias) : f,
@@ -63,10 +62,7 @@ class VirtualTableTransformer extends OperationNodeTransformer {
         : vtWhereNode;
     }
 
-    let newSelections = node.selections;
-    if (node.selections?.some(s => SelectAllNode.is(s.selection))) {
-      newSelections = this.buildSelectAll(vt, primaryRef);
-    }
+    const newSelections = node.selections?.flatMap(s => this.expandSelection(s, vt, primaryRef));
 
     return super.transformSelectQuery({
       ...node,
@@ -114,8 +110,26 @@ class VirtualTableTransformer extends OperationNodeTransformer {
   }
 
   private buildPrimaryFrom(vt: VirtualTable<any, any>, alias: string | undefined): OperationNode {
-    const table = TableNode.create(vt._source._name);
-    return alias ? AliasNode.create(table, IdentifierNode.create(alias)) : table;
+    return AliasNode.create(TableNode.create(vt._source._name), IdentifierNode.create(alias ?? vt._name));
+  }
+
+  private expandSelection(selection: SelectionNode, vt: VirtualTable<any, any>, primaryRef: string): SelectionNode[] {
+    const target = selection.selection;
+    if (SelectAllNode.is(target)) return this.buildSelectAll(vt, primaryRef);
+    if (!ReferenceNode.is(target) || !SelectAllNode.is(target.column) || !target.table) return [selection];
+
+    const tableName = target.table.table.identifier.name;
+    if (tableName === primaryRef || tableName === vt._name) return this.buildSelectAll(vt, primaryRef);
+
+    const join = vt._joins.find((j: VirtualTableJoin<any, any>) => j.table._name === tableName);
+    if (!join) return [selection];
+    return this.joinSelections(join);
+  }
+
+  private joinSelections(join: VirtualTableJoin<any, any>): SelectionNode[] {
+    return (join.columns as string[]).map(col =>
+      SelectionNode.create(ReferenceNode.create(ColumnNode.create(col), TableNode.create(join.table._name))),
+    );
   }
 
   private buildJoin(join: VirtualTableJoin<any, any>, primaryRef: string): JoinNode {
@@ -126,7 +140,7 @@ class VirtualTableTransformer extends OperationNodeTransformer {
       ReferenceNode.create(ColumnNode.create(joinedCol), TableNode.create(join.table._name)),
     );
     const joinType = join.type === 'left' ? 'LeftJoin' : 'InnerJoin';
-    return JoinNode.createWithOn(joinType, TableNode.create(join.table._name), OnNode.create(on));
+    return JoinNode.createWithOn(joinType, TableNode.create(join.table._name), on);
   }
 
   private buildWhere(filter: Record<string, unknown>, primaryRef: string): WhereNode {
@@ -148,11 +162,7 @@ class VirtualTableTransformer extends OperationNodeTransformer {
     const ownSelections = ownCols.map(col =>
       SelectionNode.create(ReferenceNode.create(ColumnNode.create(col), TableNode.create(primaryRef))),
     );
-    const joinedSelections = vt._joins.flatMap((j: VirtualTableJoin<any, any>) =>
-      (j.columns as string[]).map(col =>
-        SelectionNode.create(ReferenceNode.create(ColumnNode.create(col), TableNode.create(j.table._name))),
-      ),
-    );
+    const joinedSelections = vt._joins.flatMap((j: VirtualTableJoin<any, any>) => this.joinSelections(j));
 
     return [...ownSelections, ...joinedSelections];
   }
