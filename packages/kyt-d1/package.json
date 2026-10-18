@@ -1,11 +1,12 @@
 {
-  "name": "d1-kyt",
-  "version": "0.11.0",
+  "name": "kyt-d1",
+  "version": "0.12.0",
   "description": "Opinionated Cloudflare D1 + Kysely toolkit",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
+    "kyt-d1": "dist/cli.js",
     "d1-kyt": "dist/cli.js"
   },
   "exports": {
@@ -44,6 +45,11 @@
   ],
   "author": "sher",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sher/kyt.git",
+    "directory": "packages/kyt-d1"
+  },
   "peerDependencies": {
     "kysely": ">=0.27.0",
     "valibot": ">=1.0.0"

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 (2026-10-18)
+
+- Add the `repository` field, so npm links to `packages/kyt-pg` in the `sher/kyt` repo.
+
 ## 0.1.0 (2026-10-18)
 
 First release.

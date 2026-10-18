@@ -169,7 +169,7 @@ describe('cli commands', () => {
     expect(sql).toContain('ALTER TABLE "Account" RENAME COLUMN "name" TO "fullName";');
   });
 
-  it('refuses a d1-kyt snapshot', async () => {
+  it('refuses a kyt-d1 snapshot', async () => {
     writeSchema('email');
     writeFileSync(join(cwd, 'db/schema.json'), JSON.stringify({ version: 1, tables: { users: { name: 'users', columns: {} } } }));
     expect(await cmdSchemaDiff(io, { renames: [], noRename: false })).toBe(1);

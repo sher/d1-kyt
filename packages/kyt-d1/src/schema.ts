@@ -1,7 +1,7 @@
 /**
- * Declarative schema API for d1-kyt.
+ * Declarative schema API for kyt-d1.
  * Define tables using Valibot schemas as column types.
- * Use `d1-kyt schema:diff <name>` to generate migration SQL from schema diffs.
+ * Use `kyt-d1 schema:diff <name>` to generate migration SQL from schema diffs.
  */
 
 import type * as v from 'valibot';
@@ -387,11 +387,11 @@ export function defineVirtualTable<
  * Use v.nullable(schema) for columns that allow NULL.
  *
  * Auto-columns (id, createdAt, updatedAt) are added by default; control via
- * the same `TableOptions` as the imperative `defineTable` in `d1-kyt/migrate`.
+ * the same `TableOptions` as the imperative `defineTable` in `kyt-d1/migrate`.
  *
  * @example
  * ```ts
- * import { defineTable, withDefault } from 'd1-kyt';
+ * import { defineTable, withDefault } from 'kyt-d1';
  * import * as v from 'valibot';
  *
  * export const users = defineTable('users', {
