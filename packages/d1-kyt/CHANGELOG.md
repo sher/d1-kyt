@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+**Fix**: three virtual table bugs.
+- A virtual table with `joins` wrote `on on`, which SQLite rejects. It now writes one `on`.
+- `selectAll('p')` on an aliased virtual table, or `selectAll('<VirtualTable>')`, returned every column of the source table. It now returns only the virtual table columns. `selectAll('<JoinedTable>')` returns only that join's columns.
+- `select('<VirtualTable>.<column>')` wrote SQL that does not run. The source table is now aliased to the virtual table name, as in `from "Post" as "PostForSale"`.
+
 ## 0.11.0 (2026-10-16)
 
 **Release**: Stable release of 0.11.0-rc.1. No library code changes.
