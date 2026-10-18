@@ -208,6 +208,7 @@ try {
 - It adds a `KytMigration` table to track each file.
 - It runs each file and its `KytMigration` row in one transaction, under `pg_advisory_xact_lock`. Two runners cannot clash.
 - Each transaction uses `read committed`, even if your database defaults to `repeatable read` or `serializable`.
+- It refuses a new file that holds `BEGIN`, `COMMIT`, `END`, `ROLLBACK` or `START TRANSACTION`. Those would end the transaction partway through the file. Comments, quoted text and `$$` function bodies are skipped, so trigger functions are fine.
 - It stops with an error when a file changed after it ran. Add a new migration instead.
 
 ## Cloud Run job

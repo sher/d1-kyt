@@ -83,6 +83,16 @@ describe('migrate', () => {
     expect([...r1!.applied, ...r2!.applied].sort()).toEqual(['0001_a.sql', '0002_b.sql']);
   });
 
+  it('refuses a new file that holds a transaction statement', async () => {
+    await migrate(sql, { dir, log });
+    writeFileSync(join(dir, '0003_c.sql'), 'create table "C" ("id" bigint primary key);\nCOMMIT;\n');
+    await expect(migrate(sql, { dir, log })).rejects.toThrow(
+      'kyt-pg: migration "0003_c.sql" holds a COMMIT statement. The runner wraps each file in a transaction, so remove BEGIN, COMMIT and ROLLBACK from the file.',
+    );
+    const [row] = await sql`select to_regclass('"C"') as c, (select count(*)::int from "KytMigration" where "name" = '0003_c.sql') as n`;
+    expect(row).toEqual({ c: null, n: 0 });
+  });
+
   it('applies each file one time when the database defaults to serializable', async () => {
     const name = new URL(fresh.url).pathname.slice(1);
     await sql.unsafe(`alter database "${name}" set default_transaction_isolation = 'serializable'`);

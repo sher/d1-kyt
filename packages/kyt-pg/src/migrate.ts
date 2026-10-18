@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { findTransactionStatement } from './sql-scan.js';
 
 export interface MigrateTx {
   unsafe(query: string, params?: any[]): PromiseLike<readonly any[]> & { simple(): PromiseLike<unknown> };
@@ -51,6 +52,12 @@ export async function migrate(sql: MigrateClient, options: MigrateOptions): Prom
           );
         }
         return 'skipped' as const;
+      }
+      const word = findTransactionStatement(text);
+      if (word) {
+        throw new Error(
+          `kyt-pg: migration "${file}" holds a ${word} statement. The runner wraps each file in a transaction, so remove BEGIN, COMMIT and ROLLBACK from the file.`,
+        );
       }
       await tx.unsafe(text).simple();
       await tx.unsafe('insert into "KytMigration" ("name", "checksum") values ($1, $2)', [file, checksum]);
