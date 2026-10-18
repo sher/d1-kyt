@@ -328,6 +328,17 @@ describe('dropped tables', () => {
       'DROP TABLE "A", "B";',
     ]);
   });
+
+  it('drops the trigger functions of dropped tables', () => {
+    const Gone = defineTable('Gone', { x: v.string() });
+    defineTrigger('Gone_audit', { timing: 'AFTER', event: 'INSERT', on: Gone, body: 'NULL;' });
+    const prev = serializeSchema({ Gone });
+    expect(diffToSQL(diffSnapshots(prev, EMPTY_SNAPSHOT)).slice(-3)).toEqual([
+      'DROP TABLE "Gone";',
+      'DROP FUNCTION IF EXISTS "Gone_updatedAt_trg_fn"();',
+      'DROP FUNCTION IF EXISTS "Gone_audit_fn"();',
+    ]);
+  });
 });
 
 describe('output', () => {

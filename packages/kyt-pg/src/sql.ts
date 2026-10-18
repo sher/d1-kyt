@@ -185,6 +185,11 @@ export function diffToSQL(diff: SchemaDiff, renames: Rename[] = []): string[] {
       );
     }
     out.push(`DROP TABLE ${diff.droppedTables.map((t) => q(t.name)).join(', ')};`);
+    for (const table of diff.droppedTables) {
+      for (const trigger of Object.values(table.triggers)) {
+        out.push(`DROP FUNCTION IF EXISTS ${q(`${trigger.name}_fn`)}();`);
+      }
+    }
   }
 
   return out;

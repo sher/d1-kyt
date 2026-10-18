@@ -160,6 +160,8 @@ describe('column and table changes on Postgres', () => {
       expect(owner.score).toBe(5);
       const tables = await fresh.sql`select table_name from information_schema.tables where table_schema = 'public' order by 1`;
       expect(tables.map((t) => t.table_name)).toEqual(['Item', 'Owner']);
+      const [left] = await fresh.sql`select count(*)::int as n from pg_proc where proname = 'Old_updatedAt_trg_fn'`;
+      expect(left.n).toBe(0);
       await expect(fresh.sql`insert into "Item" ("ownerId") values (999)`).rejects.toThrow();
     } finally {
       await fresh.close();
