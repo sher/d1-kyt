@@ -190,15 +190,33 @@ function quote(text: string): string {
   return `'${text.replaceAll("'", "''")}'`;
 }
 
+class ColumnError extends Error {
+  constructor(readonly problem: string) {
+    super(`kyt-pg: ${problem}`);
+  }
+}
+
+function jsonDefault(def: object): string {
+  try {
+    return `${quote(JSON.stringify(def))}::jsonb`;
+  } catch {
+    throw new ColumnError('default holds a bigint, and JSON cannot store a bigint');
+  }
+}
+
 function renderDefault(def: unknown): string {
   if (def === null) return 'NULL';
   if (typeof def === 'string') return quote(def);
-  if (typeof def === 'number' || typeof def === 'bigint') return String(def);
+  if (typeof def === 'number') {
+    if (!Number.isFinite(def)) throw new ColumnError(`default ${def} is not a finite number`);
+    return String(def);
+  }
+  if (typeof def === 'bigint') return String(def);
   if (typeof def === 'boolean') return def ? 'true' : 'false';
   if (def instanceof Date) return `${quote(def.toISOString())}::timestamptz`;
   if ((def as SqlDefault)?._tag === 'sqlDefault') return (def as SqlDefault).sql;
-  if (typeof def === 'object') return `${quote(JSON.stringify(def))}::jsonb`;
-  throw new Error(`kyt-pg: unsupported default value of type "${typeof def}"`);
+  if (typeof def === 'object') return jsonDefault(def);
+  throw new ColumnError(`unsupported default value of type "${typeof def}"`);
 }
 
 function hasPipeAction(inner: any, type: string): boolean {
@@ -240,7 +258,7 @@ export function pgTypeFromSchema(schema: AnyColSchema): ColumnTypeInfo {
     case 'picklist':
       return { type: 'text', notNull };
     default:
-      throw new Error(`kyt-pg: unsupported Valibot type "${inner?.type ?? 'unknown'}"`);
+      throw new ColumnError(`unsupported Valibot type "${inner?.type ?? 'unknown'}"`);
   }
 }
 
@@ -262,9 +280,8 @@ export function defineTable<
     try {
       pgTypeFromSchema(schema);
     } catch (error) {
-      const type = (error as Error).message.match(/unsupported Valibot type "(.*)"$/)?.[1];
-      if (type === undefined) throw error;
-      throw new Error(`kyt-pg: column "${name}"."${column}": unsupported Valibot type "${type}"`);
+      if (!(error instanceof ColumnError)) throw error;
+      throw new Error(`kyt-pg: column "${name}"."${column}": ${error.problem}`);
     }
   }
   const table = {

@@ -57,6 +57,23 @@ describe('defineTable', () => {
     expect(() => defineTable('Bad', { mixed: v.union([v.string(), v.number()]) }))
       .toThrow('kyt-pg: column "Bad"."mixed": unsupported Valibot type "union"');
   });
+
+  it('names the column when a number default is not finite', () => {
+    expect(() => defineTable('Bad', { score: withDefault(v.number(), NaN) }))
+      .toThrow('kyt-pg: column "Bad"."score": default NaN is not a finite number');
+    expect(() => defineTable('Bad', { score: withDefault(v.number(), Infinity) }))
+      .toThrow('kyt-pg: column "Bad"."score": default Infinity is not a finite number');
+  });
+
+  it('names the column when a jsonb default holds a bigint', () => {
+    expect(() => defineTable('Bad', { meta: withDefault(v.object({ n: v.bigint() }), { n: 1n }) }))
+      .toThrow('kyt-pg: column "Bad"."meta": default holds a bigint, and JSON cannot store a bigint');
+  });
+
+  it('names the column when a default is undefined', () => {
+    expect(() => defineTable('Bad', { name: withDefault(v.string(), undefined as unknown as string) }))
+      .toThrow('kyt-pg: column "Bad"."name": unsupported default value of type "undefined"');
+  });
 });
 
 describe('InferDB', () => {
