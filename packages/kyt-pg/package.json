@@ -27,7 +27,7 @@
     "dev": "tsc --watch",
     "test": "vitest run --project unit",
     "test:pg": "vitest run --project pg",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
