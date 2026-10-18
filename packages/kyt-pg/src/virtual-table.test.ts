@@ -175,6 +175,7 @@ describe('VirtualTablePlugin joins', () => {
     expect(s).toContain('"ArticleWithAuthor"."authorId" = "Author"."id"');
     expect(s).toContain('"ArticleWithAuthor"."title"');
     expect(s).toContain('"Author"."name"');
+    expect(s).toMatch(/ from "Article" as "ArticleWithAuthor" inner join "Author" on "ArticleWithAuthor"\."authorId" = "Author"\."id"$/);
   });
 
   it('expands selectAll on the joined table to the join columns only', () => {

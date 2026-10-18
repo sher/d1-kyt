@@ -63,6 +63,9 @@ it('goes from schema to typed queries through migrations', async () => {
   const PublishedPost = defineVirtualTable('PublishedPost', PostV2, ['authorId', 'title', 'summary'], {
     where: { published: true },
   });
+  const PostWithAuthor = defineVirtualTable('PostWithAuthor', PostV2, ['title'], {
+    joins: [{ table: UserV2, on: ['authorId', 'id'], columns: ['fullName'] }],
+  });
   const v2 = serializeSchema({ UserV2, PostV2 });
 
   const renames: Rename[] = [{ kind: 'column', table: 'User', from: 'name', to: 'fullName' }];
@@ -76,7 +79,10 @@ it('goes from schema to typed queries through migrations', async () => {
   await expectDatabaseMatches(v2);
 
   type DB = InferDB<{ User: typeof UserV2; Post: typeof PostV2 }>;
-  const qb = createQueryBuilder<DB & { PublishedPost: DB['Post'] }>([PublishedPost]);
+  const qb = createQueryBuilder<DB & { PublishedPost: DB['Post']; PostWithAuthor: { title: string; fullName: string } }>([
+    PublishedPost,
+    PostWithAuthor,
+  ]);
 
   const [user] = await queryAll(
     db.sql,
@@ -117,4 +123,13 @@ it('goes from schema to typed queries through migrations', async () => {
   const aliased = await queryAll(db.sql, qb.selectFrom('PublishedPost as p').selectAll('p').compile());
   expect(aliased).toHaveLength(1);
   expect(Object.keys(aliased[0] as object).sort()).toEqual(['authorId', 'createdAt', 'id', 'summary', 'title', 'updatedAt']);
+
+  const joined = await queryAll(
+    db.sql,
+    qb.selectFrom('PostWithAuthor').select(['title', 'fullName']).orderBy('title').compile(),
+  );
+  expect(joined).toEqual([
+    { title: 'Hidden', fullName: 'Ada' },
+    { title: 'Shown', fullName: 'Ada' },
+  ]);
 });

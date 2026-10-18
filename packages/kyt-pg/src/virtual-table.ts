@@ -9,7 +9,6 @@ import {
   IdentifierNode,
   InsertQueryNode,
   JoinNode,
-  OnNode,
   OperationNodeTransformer,
   OperatorNode,
   ReferenceNode,
@@ -202,7 +201,7 @@ class VirtualTableTransformer extends OperationNodeTransformer {
       ReferenceNode.create(ColumnNode.create(joinedCol), TableNode.create(join.table._name)),
     );
     const joinType = join.type === 'left' ? 'LeftJoin' : 'InnerJoin';
-    return JoinNode.createWithOn(joinType, TableNode.create(join.table._name), OnNode.create(on));
+    return JoinNode.createWithOn(joinType, TableNode.create(join.table._name), on);
   }
 
   private buildWhere(filter: Record<string, unknown>, primaryRef: string): WhereNode {
