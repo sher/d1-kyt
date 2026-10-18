@@ -26,11 +26,13 @@ const DEFAULT_DIR = 'db';
 const NO_TERMINAL_ERROR =
   'Error: schema:diff found possible renames and cannot ask without a terminal. Run it in a terminal, or pass --rename <Table>.<old>=<new> for each rename, or pass --no-rename.';
 
-const SCHEMA_TEMPLATE = `import { defineTable, defineIndex, withDefault } from 'kyt-pg';
-import { createQueryBuilder } from 'kyt-pg';
-import * as v from 'valibot';
+const SCHEMA_TEMPLATE = `import { createQueryBuilder } from 'kyt-pg';
+import type { InferDB } from 'kyt-pg';
 
 // Define your tables here, then run: kyt-pg schema:diff <name>
+//
+// import { defineTable, defineIndex, withDefault } from 'kyt-pg';
+// import * as v from 'valibot';
 //
 // export const User = defineTable('User', {
 //   email: v.string(),
@@ -40,9 +42,9 @@ import * as v from 'valibot';
 //
 // export const UserEmailIdx = defineIndex(User, ['email'], { unique: true });
 
-export type DB = {
-  // User: typeof User.$inferSelect;
-};
+export type DB = InferDB<{
+  // User: typeof User;
+}>;
 
 export const db = createQueryBuilder<DB>();
 `;

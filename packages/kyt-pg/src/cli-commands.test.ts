@@ -60,6 +60,9 @@ describe('cli commands', () => {
     expect(read('db/config.ts')).toContain("import { defineConfig } from 'kyt-pg';");
     expect(read('db/config.ts')).toContain("migrationsDir: 'db/migrations'");
     expect(JSON.parse(read('db/schema.json'))).toEqual({ version: 1, dialect: 'postgres', tables: {} });
+    expect(read('db/schema.ts')).toContain("import type { InferDB } from 'kyt-pg';");
+    expect(read('db/schema.ts')).toContain('export type DB = InferDB<{');
+    expect(read('db/schema.ts')).not.toContain('$inferSelect');
     writeFileSync(join(cwd, 'db/config.ts'), 'custom');
     cmdInit(io, {});
     expect(read('db/config.ts')).toBe('custom');
