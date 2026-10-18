@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import * as v from 'valibot';
 import { freshDb } from '../test/pg.js';
-import { expectedFrom } from '../test/columns.js';
+import { expectedForeignKeys, expectedFrom, expectedIndexes, expectedTriggers, onDeleteFromCode } from '../test/columns.js';
 import { defineTable, defineIndex } from './schema.js';
 import type { InferDB } from './schema.js';
 import { defineVirtualTable } from './virtual-table.js';
@@ -38,6 +38,37 @@ async function expectDatabaseMatches(snapshot: ReturnType<typeof serializeSchema
   const byName = (a: { table_name: string; column_name: string }, b: typeof a) =>
     a.table_name.localeCompare(b.table_name) || a.column_name.localeCompare(b.column_name);
   expect([...cols]).toEqual(expectedFrom(snapshot).sort(byName));
+
+  const indexes = await db.sql`
+    select t.relname as table_name, i.relname as index_name, x.indisunique as unique
+    from pg_index x
+    join pg_class i on i.oid = x.indexrelid
+    join pg_class t on t.oid = x.indrelid
+    join pg_namespace n on n.oid = t.relnamespace
+    where n.nspname = 'public' and not x.indisprimary and t.relname <> 'KytMigration'
+    order by i.relname`;
+  expect([...indexes]).toEqual(expectedIndexes(snapshot));
+
+  const foreignKeys = await db.sql`
+    select t.relname as table_name, c.conname as constraint_name, r.relname as ref_table, c.confdeltype as on_delete
+    from pg_constraint c
+    join pg_class t on t.oid = c.conrelid
+    join pg_class r on r.oid = c.confrelid
+    join pg_namespace n on n.oid = t.relnamespace
+    where n.nspname = 'public' and c.contype = 'f'
+    order by c.conname`;
+  expect(foreignKeys.map((fk) => ({ ...fk, on_delete: onDeleteFromCode(fk.on_delete) }))).toEqual(
+    expectedForeignKeys(snapshot),
+  );
+
+  const triggers = await db.sql`
+    select t.relname as table_name, g.tgname as trigger_name
+    from pg_trigger g
+    join pg_class t on t.oid = g.tgrelid
+    join pg_namespace n on n.oid = t.relnamespace
+    where n.nspname = 'public' and not g.tgisinternal
+    order by g.tgname`;
+  expect([...triggers]).toEqual(expectedTriggers(snapshot));
 }
 
 it('goes from schema to typed queries through migrations', async () => {
