@@ -25,3 +25,8 @@ Each package needs one setting on npmjs.com, under Settings, then Trusted publis
 | Repository | `kyt` |
 | Workflow filename | `publish.yml` |
 | Environment | leave empty |
+
+## Dependency updates
+
+- pnpm refuses any package version published less than 7 days ago (`minimumReleaseAge: 10080` minutes, in `pnpm-workspace.yaml`). To let one package through early, add it to `minimumReleaseAgeExclude`.
+- Dependabot checks the workflow actions every week. It opens a PR only for a release that is at least 7 days old, and it updates the pinned SHA and its version comment.
