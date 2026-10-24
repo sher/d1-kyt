@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 (2026-10-24)
+
+- Add npm, CI and license badges to the README.
+- Ship the MIT `LICENSE` file in the package.
+
 ## 0.1.1 (2026-10-18)
 
 - Add the `repository` field, so npm links to `packages/kyt-pg` in the `sher/kyt` repo.

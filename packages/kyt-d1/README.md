@@ -1,5 +1,7 @@
 # kyt-d1
 
+[![npm](https://img.shields.io/npm/v/kyt-d1)](https://www.npmjs.com/package/kyt-d1) [![CI](https://github.com/sher/kyt/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sher/kyt/actions/workflows/ci.yml) [![license](https://img.shields.io/npm/l/kyt-d1)](https://github.com/sher/kyt/blob/main/packages/kyt-d1/LICENSE)
+
 > kyt-d1 is the new name of `d1-kyt`. To move, run `npm uninstall d1-kyt && npm install kyt-d1`, then change your imports from `'d1-kyt'` to `'kyt-d1'`. The `d1-kyt` command still works, as another name for `kyt-d1`.
 
 Type-safe [Cloudflare D1](https://developers.cloudflare.com/d1/) toolkit built on [Kysely](https://kysely.dev/) and [Valibot](https://valibot.dev/). Define your schema once in Valibot — get SQL migrations and fully-typed queries with no code generation.

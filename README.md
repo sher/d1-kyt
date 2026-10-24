@@ -1,5 +1,7 @@
 # kyt
 
+[![CI](https://github.com/sher/kyt/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sher/kyt/actions/workflows/ci.yml) [![kyt-d1](https://img.shields.io/npm/v/kyt-d1?label=kyt-d1)](https://www.npmjs.com/package/kyt-d1) [![kyt-pg](https://img.shields.io/npm/v/kyt-pg?label=kyt-pg)](https://www.npmjs.com/package/kyt-pg)
+
 Typed schema, migrations, and query builder, built on [Kysely](https://kysely.dev/) and [Valibot](https://valibot.dev/).
 
 | Package | Database | Folder |

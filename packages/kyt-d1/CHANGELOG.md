@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.1 (2026-10-24)
+
+- Add npm, CI and license badges to the README.
+- Ship the MIT `LICENSE` file in the package.
+
 ## 0.12.0 (2026-10-18)
 
 **Rename**: `d1-kyt` is now `kyt-d1`, in the `sher/kyt` repo. No library code changes.
