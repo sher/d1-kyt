@@ -1,0 +1,56 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package to publish
+        type: choice
+        options: [both, kyt-d1, kyt-pg]
+        default: both
+      dry_run:
+        description: Run every step, but do not publish or create a release
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - run: npm -v
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm --filter kyt-pg test:pg
+      - name: Publish
+        env:
+          PACKAGE: ${{ inputs.package }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$PACKAGE" in
+            both) dirs="packages/kyt-d1 packages/kyt-pg" ;;
+            *) dirs="packages/$PACKAGE" ;;
+          esac
+          for dir in $dirs; do
+            bash .github/scripts/publish.sh "$dir"
+          done
