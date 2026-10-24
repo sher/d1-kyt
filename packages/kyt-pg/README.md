@@ -1,5 +1,7 @@
 # kyt-pg
 
+[![npm](https://img.shields.io/npm/v/kyt-pg)](https://www.npmjs.com/package/kyt-pg) [![CI](https://github.com/sher/kyt/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sher/kyt/actions/workflows/ci.yml) [![license](https://img.shields.io/npm/l/kyt-pg)](https://github.com/sher/kyt/blob/main/packages/kyt-pg/LICENSE)
+
 Write your Postgres schema with Valibot. Get typed Kysely queries and SQL migrations from it.
 
 kyt-pg only builds queries and writes SQL. Your app runs them with postgres.js.
